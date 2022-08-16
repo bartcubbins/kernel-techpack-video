@@ -5,7 +5,7 @@ ifneq ($(CONFIG_ARCH_MONACO), y)
 KBUILD_CPPFLAGS += -DCONFIG_MSM_MMRM=1
 endif
 
-VIDEO_ROOT = $(shell pwd)/techpack/video
+VIDEO_ROOT = $(srctree)/techpack/video
 
 ifeq ($(CONFIG_ARCH_WAIPIO), y)
 include $(VIDEO_ROOT)/config/waipio_video.conf
