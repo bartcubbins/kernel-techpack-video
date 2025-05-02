@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2020-2021,, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _MSM_VIDC_DRIVER_H_
@@ -9,6 +9,7 @@
 
 #include <linux/workqueue.h>
 #include <linux/iommu.h>
+#include <media/v4l2_vidc_extensions.h>
 #include "msm_vidc_internal.h"
 #include "msm_vidc_core.h"
 #include "msm_vidc_inst.h"
@@ -19,63 +20,73 @@
 
 enum msm_vidc_debugfs_event;
 
-static inline int is_decode_session(struct msm_vidc_inst *inst)
+static inline bool is_decode_session(struct msm_vidc_inst *inst)
 {
 	return inst->domain == MSM_VIDC_DECODER;
 }
 
-static inline int is_encode_session(struct msm_vidc_inst *inst)
+static inline bool is_encode_session(struct msm_vidc_inst *inst)
 {
 	return inst->domain == MSM_VIDC_ENCODER;
 }
 
-static inline int is_image_encode_session(struct msm_vidc_inst *inst)
+static inline bool is_image_encode_session(struct msm_vidc_inst *inst)
 {
 	return inst->codec == MSM_VIDC_HEIC && inst->domain == MSM_VIDC_ENCODER;
 }
 
-static inline int is_image_decode_session(struct msm_vidc_inst *inst)
+static inline bool is_image_decode_session(struct msm_vidc_inst *inst)
 {
 	return inst->codec == MSM_VIDC_HEIC && inst->domain == MSM_VIDC_DECODER;
 }
 
-static inline int is_image_session(struct msm_vidc_inst *inst)
+static inline bool is_image_session(struct msm_vidc_inst *inst)
 {
 	return inst->codec == MSM_VIDC_HEIC;
 }
 
-static inline int is_secure_session(struct msm_vidc_inst *inst)
+static inline bool is_secure_session(struct msm_vidc_inst *inst)
 {
 	return !!(inst->capabilities->cap[SECURE_MODE].value);
 }
 
-static inline int is_input_buffer(enum msm_vidc_buffer_type buffer_type)
+static inline bool is_input_buffer(enum msm_vidc_buffer_type buffer_type)
 {
 	return buffer_type == MSM_VIDC_BUF_INPUT;
 }
 
-static inline int is_output_buffer(enum msm_vidc_buffer_type buffer_type)
+static inline bool is_output_buffer(enum msm_vidc_buffer_type buffer_type)
 {
 	return buffer_type == MSM_VIDC_BUF_OUTPUT;
 }
 
-static inline int is_input_meta_buffer(enum msm_vidc_buffer_type buffer_type)
+static inline bool is_input_meta_buffer(enum msm_vidc_buffer_type buffer_type)
 {
 	return buffer_type == MSM_VIDC_BUF_INPUT_META;
 }
 
-static inline int is_output_meta_buffer(enum msm_vidc_buffer_type buffer_type)
+static inline bool is_output_meta_buffer(enum msm_vidc_buffer_type buffer_type)
 {
 	return buffer_type == MSM_VIDC_BUF_OUTPUT_META;
 }
 
-static inline int is_ts_reorder_allowed(struct msm_vidc_inst *inst)
+static inline bool is_slice_decode_enabled(struct msm_vidc_inst *inst)
+{
+	return !!(inst->capabilities->cap[SLICE_DECODE].value);
+}
+
+static inline bool is_early_notify_enabled(struct msm_vidc_inst *inst)
+{
+	return !!(inst->capabilities->cap[EARLY_NOTIFY_ENABLE].value);
+}
+
+static inline bool is_ts_reorder_allowed(struct msm_vidc_inst *inst)
 {
 	return !!(inst->capabilities->cap[TS_REORDER].value &&
 		is_decode_session(inst) && !is_image_session(inst));
 }
 
-static inline int is_scaling_enabled(struct msm_vidc_inst *inst)
+static inline bool is_scaling_enabled(struct msm_vidc_inst *inst)
 {
 	return inst->crop.left != inst->compose.left ||
 		inst->crop.top != inst->compose.top ||
@@ -83,13 +94,13 @@ static inline int is_scaling_enabled(struct msm_vidc_inst *inst)
 		inst->crop.height != inst->compose.height;
 }
 
-static inline int is_rotation_90_or_270(struct msm_vidc_inst *inst)
+static inline bool is_rotation_90_or_270(struct msm_vidc_inst *inst)
 {
 	return inst->capabilities->cap[ROTATION].value == 90 ||
 		inst->capabilities->cap[ROTATION].value == 270;
 }
 
-static inline int is_internal_buffer(enum msm_vidc_buffer_type buffer_type)
+static inline bool is_internal_buffer(enum msm_vidc_buffer_type buffer_type)
 {
 	return buffer_type == MSM_VIDC_BUF_BIN ||
 		buffer_type == MSM_VIDC_BUF_ARP ||
@@ -98,45 +109,121 @@ static inline int is_internal_buffer(enum msm_vidc_buffer_type buffer_type)
 		buffer_type == MSM_VIDC_BUF_LINE ||
 		buffer_type == MSM_VIDC_BUF_DPB ||
 		buffer_type == MSM_VIDC_BUF_PERSIST ||
-		buffer_type == MSM_VIDC_BUF_VPSS;
+		buffer_type == MSM_VIDC_BUF_VPSS ||
+		buffer_type == MSM_VIDC_BUF_PARTIAL_DATA;
+}
+
+static inline bool is_meta_cap(u32 cap)
+{
+	if (cap > INST_CAP_NONE && cap < META_CAP_MAX)
+		return true;
+
+	return false;
+}
+
+static inline bool is_meta_rx_inp_enabled(struct msm_vidc_inst *inst, u32 cap)
+{
+	bool enabled = false;
+
+	if (inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_ENABLE &&
+		inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_RX_INPUT)
+		enabled = true;
+
+	return enabled;
+}
+
+static inline bool is_meta_rx_out_enabled(struct msm_vidc_inst *inst, u32 cap)
+{
+	bool enabled = false;
+
+	if (inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_ENABLE &&
+		inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_RX_OUTPUT)
+		enabled = true;
+
+	return enabled;
+}
+
+static inline bool is_meta_tx_inp_enabled(struct msm_vidc_inst *inst, u32 cap)
+{
+	bool enabled = false;
+
+	if (inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_ENABLE &&
+		inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_TX_INPUT)
+		enabled = true;
+
+	return enabled;
+}
+
+static inline bool is_meta_tx_out_enabled(struct msm_vidc_inst *inst, u32 cap)
+{
+	bool enabled = false;
+
+	if (inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_ENABLE &&
+		inst->capabilities->cap[cap].value & V4L2_MPEG_VIDC_META_TX_OUTPUT)
+		enabled = true;
+
+	return enabled;
+}
+
+static inline bool is_any_meta_tx_out_enabled(struct msm_vidc_inst *inst)
+{
+	bool enabled = false;
+	u32 i;
+
+	for (i = INST_CAP_NONE + 1; i < META_CAP_MAX; i++) {
+		if (is_meta_tx_out_enabled(inst, i)) {
+			enabled = true;
+			break;
+		}
+	}
+
+	return enabled;
+}
+
+static inline bool is_any_meta_tx_inp_enabled(struct msm_vidc_inst *inst)
+{
+	bool enabled = false;
+	u32 i;
+
+	for (i = INST_CAP_NONE + 1; i < META_CAP_MAX; i++) {
+		if (is_meta_tx_inp_enabled(inst, i)) {
+			enabled = true;
+			break;
+		}
+	}
+
+	return enabled;
 }
 
 static inline bool is_input_meta_enabled(struct msm_vidc_inst *inst)
 {
 	bool enabled = false;
+	u32 i;
 
-	if (is_decode_session(inst)) {
-		enabled = inst->capabilities->cap[META_BUF_TAG].value ?
-			true : false;
-	} else if (is_encode_session(inst)) {
-		enabled = (inst->capabilities->cap[META_SEQ_HDR_NAL].value ||
-			inst->capabilities->cap[META_EVA_STATS].value ||
-			inst->capabilities->cap[META_BUF_TAG].value ||
-			inst->capabilities->cap[META_ROI_INFO].value);
+	for (i = INST_CAP_NONE + 1; i < META_CAP_MAX; i++) {
+		if (is_meta_tx_inp_enabled(inst, i) ||
+			is_meta_rx_inp_enabled(inst, i)) {
+			enabled = true;
+			break;
+		}
 	}
+
 	return enabled;
 }
 
 static inline bool is_output_meta_enabled(struct msm_vidc_inst *inst)
 {
 	bool enabled = false;
+	u32 i;
 
-	if (is_decode_session(inst)) {
-		enabled = (inst->capabilities->cap[META_DPB_MISR].value ||
-			inst->capabilities->cap[META_OPB_MISR].value ||
-			inst->capabilities->cap[META_INTERLACE].value ||
-			inst->capabilities->cap[META_CONCEALED_MB_CNT].value ||
-			inst->capabilities->cap[META_HIST_INFO].value ||
-			inst->capabilities->cap[META_SEI_MASTERING_DISP].value ||
-			inst->capabilities->cap[META_SEI_CLL].value ||
-			inst->capabilities->cap[META_BUF_TAG].value ||
-			inst->capabilities->cap[META_DPB_TAG_LIST].value ||
-			inst->capabilities->cap[META_SUBFRAME_OUTPUT].value ||
-			inst->capabilities->cap[META_MAX_NUM_REORDER_FRAMES].value);
-	} else if (is_encode_session(inst)) {
-		enabled = (inst->capabilities->cap[META_LTR_MARK_USE].value ||
-			inst->capabilities->cap[META_BUF_TAG].value);
+	for (i = INST_CAP_NONE + 1; i < META_CAP_MAX; i++) {
+		if (is_meta_tx_out_enabled(inst, i) ||
+			is_meta_rx_out_enabled(inst, i)) {
+			enabled = true;
+			break;
+		}
 	}
+
 	return enabled;
 }
 
@@ -154,7 +241,7 @@ static inline bool is_meta_enabled(struct msm_vidc_inst *inst, unsigned int type
 
 static inline bool is_outbuf_fence_enabled(struct msm_vidc_inst *inst)
 {
-	return !!(inst->capabilities->cap[META_OUTBUF_FENCE].value);
+	return is_meta_rx_inp_enabled(inst, META_OUTBUF_FENCE);
 }
 
 static inline bool is_linear_yuv_colorformat(enum msm_vidc_colorformat_type colorformat)
@@ -187,6 +274,19 @@ static inline bool is_10bit_colorformat(enum msm_vidc_colorformat_type colorform
 		colorformat == MSM_VIDC_FMT_TP10C;
 }
 
+static inline bool is_split_mode_enabled(struct msm_vidc_inst *inst)
+{
+	if (!is_decode_session(inst))
+		return false;
+
+	if (is_linear_colorformat(inst->capabilities->cap[PIX_FMTS].value) ||
+		(inst->codec == MSM_VIDC_AV1 &&
+		inst->capabilities->cap[FILM_GRAIN].value))
+		return true;
+
+	return false;
+}
+
 static inline bool is_8bit_colorformat(enum msm_vidc_colorformat_type colorformat)
 {
 	return colorformat == MSM_VIDC_FMT_NV12 ||
@@ -216,6 +316,11 @@ static inline bool is_low_power_session(struct msm_vidc_inst *inst)
 static inline bool is_realtime_session(struct msm_vidc_inst *inst)
 {
 	return inst->capabilities->cap[PRIORITY].value == 0 ? true : false;
+}
+
+static inline bool is_critical_priority_session(struct msm_vidc_inst *inst)
+{
+	return !!(inst->capabilities->cap[CRITICAL_PRIORITY].value);
 }
 
 static inline bool is_lowlatency_session(struct msm_vidc_inst *inst)
@@ -257,7 +362,45 @@ static inline bool is_secure_region(enum msm_vidc_buffer_region region)
 			region == MSM_VIDC_NON_SECURE_PIXEL);
 }
 
-const char *cap_name(enum msm_vidc_inst_capability_type cap);
+static inline bool is_enc_slice_delivery_mode(struct msm_vidc_inst *inst)
+{
+	if (is_decode_session(inst))
+		return false;
+
+	return (inst->capabilities->cap[SLICE_MODE].value ==
+			V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB &&
+			((inst->codec == MSM_VIDC_H264 &&
+			inst->capabilities->cap[DELIVERY_MODE].value ==
+			V4L2_MPEG_VIDC_H264_ENCODE_DELIVERY_MODE_SLICE_BASED) ||
+			(inst->codec == MSM_VIDC_HEVC &&
+			inst->capabilities->cap[DELIVERY_MODE].value ==
+			V4L2_MPEG_VIDC_HEVC_ENCODE_DELIVERY_MODE_SLICE_BASED)));
+}
+
+static inline bool is_state(struct msm_vidc_inst *inst, enum msm_vidc_state state)
+{
+	return inst->state == state;
+}
+
+static inline bool is_sub_state(struct msm_vidc_inst *inst,
+	enum msm_vidc_sub_state sub_state)
+{
+	return (inst->sub_state & sub_state);
+}
+
+static inline bool is_hevc_10bit_decode_session(struct msm_vidc_inst *inst)
+{
+	bool is10bit = false;
+	if (inst->fmts[OUTPUT_PORT].fmt.pix_mp.pixelformat == V4L2_PIX_FMT_VIDC_TP10C ||
+		inst->fmts[OUTPUT_PORT].fmt.pix_mp.pixelformat == V4L2_PIX_FMT_VIDC_P010)
+		is10bit = true;
+
+	return inst->domain == MSM_VIDC_DECODER &&
+				inst->codec == MSM_VIDC_HEVC &&
+				is10bit;
+}
+
+const char *cap_name(enum msm_vidc_inst_capability_type cap_id);
 const char *v4l2_pixelfmt_name(u32 pixelfmt);
 const char *v4l2_type_name(u32 port);
 void print_vidc_buffer(u32 tag, const char *tag_str, const char *str, struct msm_vidc_inst *inst,
@@ -287,9 +430,13 @@ u32 v4l2_matrix_coeff_from_driver(struct msm_vidc_inst *inst,
 int v4l2_type_to_driver_port(struct msm_vidc_inst *inst, u32 type,
 	const char *func);
 const char *allow_name(enum msm_vidc_allow allow);
-const char *state_name(enum msm_vidc_inst_state state);
-int msm_vidc_change_inst_state(struct msm_vidc_inst *inst,
-	enum msm_vidc_inst_state request_state, const char *func);
+const char *state_name(enum msm_vidc_state state);
+const char *core_state_name(enum msm_vidc_core_state state);
+int msm_vidc_change_state(struct msm_vidc_inst *inst,
+	enum msm_vidc_state request_state, const char *func);
+int msm_vidc_change_sub_state(struct msm_vidc_inst *inst,
+	enum msm_vidc_sub_state clear_sub_states,
+	enum msm_vidc_sub_state set_sub_states, const char *func);
 int msm_vidc_create_internal_buffer(struct msm_vidc_inst *inst,
 	enum msm_vidc_buffer_type buffer_type, u32 index);
 int msm_vidc_get_internal_buffers(struct msm_vidc_inst *inst,
@@ -310,8 +457,6 @@ int msm_vidc_session_open(struct msm_vidc_inst *inst);
 int msm_vidc_session_set_codec(struct msm_vidc_inst *inst);
 int msm_vidc_session_set_secure_mode(struct msm_vidc_inst *inst);
 int msm_vidc_session_set_default_header(struct msm_vidc_inst *inst);
-int msm_vidc_session_streamon(struct msm_vidc_inst *inst,
-		enum msm_vidc_port_type port);
 int msm_vidc_session_streamoff(struct msm_vidc_inst *inst,
 		enum msm_vidc_port_type port);
 int msm_vidc_session_close(struct msm_vidc_inst *inst);
@@ -320,6 +465,7 @@ int msm_vidc_get_inst_capability(struct msm_vidc_inst *inst);
 int msm_vidc_change_core_state(struct msm_vidc_core *core,
 	enum msm_vidc_core_state request_state, const char *func);
 int msm_vidc_core_init(struct msm_vidc_core *core);
+int msm_vidc_core_init_wait(struct msm_vidc_core *core);
 int msm_vidc_core_deinit(struct msm_vidc_core *core, bool force);
 int msm_vidc_inst_timeout(struct msm_vidc_inst *inst);
 int msm_vidc_print_buffer_info(struct msm_vidc_inst *inst);
@@ -391,7 +537,10 @@ struct msm_vidc_inst *get_inst(struct msm_vidc_core *core,
 void put_inst(struct msm_vidc_inst *inst);
 bool msm_vidc_allow_s_fmt(struct msm_vidc_inst *inst, u32 type);
 bool msm_vidc_allow_s_ctrl(struct msm_vidc_inst *inst, u32 id);
-bool msm_vidc_allow_metadata(struct msm_vidc_inst *inst, u32 cap_id);
+bool msm_vidc_allow_metadata_delivery(struct msm_vidc_inst *inst,
+	u32 cap_id, u32 port);
+bool msm_vidc_allow_metadata_subscription(struct msm_vidc_inst *inst,
+	u32 cap_id, u32 port);
 bool msm_vidc_allow_property(struct msm_vidc_inst *inst, u32 hfi_id);
 int msm_vidc_update_property_cap(struct msm_vidc_inst *inst, u32 hfi_id,
 	bool allow);
@@ -402,14 +551,24 @@ bool msm_vidc_allow_streamon(struct msm_vidc_inst *inst, u32 type);
 enum msm_vidc_allow msm_vidc_allow_streamoff(struct msm_vidc_inst *inst, u32 type);
 enum msm_vidc_allow msm_vidc_allow_qbuf(struct msm_vidc_inst *inst, u32 type);
 enum msm_vidc_allow msm_vidc_allow_input_psc(struct msm_vidc_inst *inst);
-bool msm_vidc_allow_last_flag(struct msm_vidc_inst *inst);
+bool msm_vidc_allow_drain_last_flag(struct msm_vidc_inst *inst);
+bool msm_vidc_allow_psc_last_flag(struct msm_vidc_inst *inst);
 int msm_vidc_state_change_streamon(struct msm_vidc_inst *inst, u32 type);
 int msm_vidc_state_change_streamoff(struct msm_vidc_inst *inst, u32 type);
-int msm_vidc_state_change_stop(struct msm_vidc_inst *inst);
-int msm_vidc_state_change_start(struct msm_vidc_inst *inst);
 int msm_vidc_state_change_input_psc(struct msm_vidc_inst *inst);
-int msm_vidc_state_change_last_flag(struct msm_vidc_inst *inst);
+int msm_vidc_state_change_drain_last_flag(struct msm_vidc_inst *inst);
+int msm_vidc_state_change_psc_last_flag(struct msm_vidc_inst *inst);
+int msm_vidc_process_drain(struct msm_vidc_inst *inst);
+int msm_vidc_process_resume(struct msm_vidc_inst *inst);
+int msm_vidc_process_streamon_input(struct msm_vidc_inst *inst);
+int msm_vidc_process_streamon_output(struct msm_vidc_inst *inst);
+int msm_vidc_process_stop_done(struct msm_vidc_inst *inst,
+	enum signal_session_response signal_type);
+int msm_vidc_process_drain_done(struct msm_vidc_inst *inst);
+int msm_vidc_process_drain_last_flag(struct msm_vidc_inst *inst);
+int msm_vidc_process_psc_last_flag(struct msm_vidc_inst *inst);
 int msm_vidc_get_mbs_per_frame(struct msm_vidc_inst *inst);
+u32 msm_vidc_get_max_bitrate(struct msm_vidc_inst* inst);
 int msm_vidc_get_fps(struct msm_vidc_inst *inst);
 int msm_vidc_num_buffers(struct msm_vidc_inst *inst,
 	enum msm_vidc_buffer_type type, enum msm_vidc_buffer_attributes attr);
@@ -419,10 +578,13 @@ bool core_lock_check(struct msm_vidc_core *core, const char *function);
 void inst_lock(struct msm_vidc_inst *inst, const char *function);
 void inst_unlock(struct msm_vidc_inst *inst, const char *function);
 bool inst_lock_check(struct msm_vidc_inst *inst, const char *function);
+bool client_lock_check(struct msm_vidc_inst *inst, const char *func);
+void client_lock(struct msm_vidc_inst *inst, const char *function);
+void client_unlock(struct msm_vidc_inst *inst, const char *function);
 int msm_vidc_update_bitstream_buffer_size(struct msm_vidc_inst *inst);
 int msm_vidc_update_meta_port_settings(struct msm_vidc_inst *inst);
 int msm_vidc_update_buffer_count(struct msm_vidc_inst *inst, u32 port);
-int msm_vidc_schedule_core_deinit(struct msm_vidc_core *core, bool force_deinit);
+void msm_vidc_schedule_core_deinit(struct msm_vidc_core *core);
 bool msm_vidc_is_super_buffer(struct msm_vidc_inst *inst);
 int msm_vidc_init_core_caps(struct msm_vidc_core* core);
 int msm_vidc_init_instance_caps(struct msm_vidc_core* core);
@@ -432,20 +594,19 @@ int msm_vidc_update_debug_str(struct msm_vidc_inst *inst);
 void msm_vidc_allow_dcvs(struct msm_vidc_inst *inst);
 bool msm_vidc_allow_decode_batch(struct msm_vidc_inst *inst);
 int msm_vidc_check_session_supported(struct msm_vidc_inst *inst);
+bool msm_vidc_ignore_session_load(struct msm_vidc_inst *inst);
 int msm_vidc_check_core_mbps(struct msm_vidc_inst *inst);
 int msm_vidc_check_core_mbpf(struct msm_vidc_inst *inst);
 int msm_vidc_check_scaling_supported(struct msm_vidc_inst *inst);
-int msm_vidc_update_timestamp(struct msm_vidc_inst *inst, u64 timestamp);
+int msm_vidc_update_timestamp_rate(struct msm_vidc_inst *inst, u64 timestamp);
 int msm_vidc_set_auto_framerate(struct msm_vidc_inst *inst, u64 timestamp);
-int msm_vidc_calc_window_avg_framerate(struct msm_vidc_inst *inst);
+int msm_vidc_get_timestamp_rate(struct msm_vidc_inst *inst);
 int msm_vidc_flush_ts(struct msm_vidc_inst *inst);
 int msm_vidc_ts_reorder_insert_timestamp(struct msm_vidc_inst *inst, u64 timestamp);
 int msm_vidc_ts_reorder_remove_timestamp(struct msm_vidc_inst *inst, u64 timestamp);
 int msm_vidc_ts_reorder_get_first_timestamp(struct msm_vidc_inst *inst, u64 *timestamp);
 int msm_vidc_ts_reorder_flush(struct msm_vidc_inst *inst);
 const char *buf_name(enum msm_vidc_buffer_type type);
-void msm_vidc_free_capabililty_list(struct msm_vidc_inst *inst,
-	enum msm_vidc_ctrl_list_type list_type);
 bool res_is_greater_than(u32 width, u32 height,
 	u32 ref_width, u32 ref_height);
 bool res_is_greater_than_or_equal_to(u32 width, u32 height,
@@ -454,12 +615,21 @@ bool res_is_less_than(u32 width, u32 height,
 	u32 ref_width, u32 ref_height);
 bool res_is_less_than_or_equal_to(u32 width, u32 height,
 	u32 ref_width, u32 ref_height);
-bool is_ubwc_supported_platform(struct msm_vidc_inst *inst);
+int signal_session_msg_receipt(struct msm_vidc_inst *inst,
+	enum signal_session_response cmd);
 int msm_vidc_get_properties(struct msm_vidc_inst *inst);
+int msm_vidc_create_input_metadata_buffer(struct msm_vidc_inst *inst, int buf_fd);
+int msm_vidc_update_input_meta_buffer_index(struct msm_vidc_inst *inst, struct vb2_buffer *vb2);
+int msm_vidc_update_input_rate(struct msm_vidc_inst *inst, struct vb2_buffer *vb2, u64 time_us);
+int msm_vidc_add_buffer_stats(struct msm_vidc_inst *inst,
+	struct msm_vidc_buffer *buf);
+int msm_vidc_remove_buffer_stats(struct msm_vidc_inst *inst,
+	struct msm_vidc_buffer *buf);
+int msm_vidc_flush_buffer_stats(struct msm_vidc_inst *inst);
+int msm_vidc_get_input_rate(struct msm_vidc_inst *inst);
+int msm_vidc_get_frame_rate(struct msm_vidc_inst *inst);
+int msm_vidc_get_operating_rate(struct msm_vidc_inst *inst);
+int msm_vidc_alloc_and_queue_input_internal_buffers(struct msm_vidc_inst *inst);
 int msm_vidc_get_src_clk_scaling_ratio(struct msm_vidc_core *core);
-int msm_vidc_qbuf_cache_operation(struct msm_vidc_inst *inst,
-	struct msm_vidc_buffer *buf);
-int msm_vidc_dqbuf_cache_operation(struct msm_vidc_inst *inst,
-	struct msm_vidc_buffer *buf);
 #endif // _MSM_VIDC_DRIVER_H_
 

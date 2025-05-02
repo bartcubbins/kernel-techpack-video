@@ -79,6 +79,8 @@ enum hfi_packet_payload_info {
 	HFI_PAYLOAD_U32_ARRAY = 0x0000000b,
 	HFI_PAYLOAD_S32_ARRAY = 0x0000000c,
 	HFI_PAYLOAD_64_PACKED = 0x0000000d,
+	HFI_PAYLOAD_U64_ARRAY = 0x0000000e,
+	HFI_PAYLOAD_S64_ARRAY = 0x0000000f,
 };
 
 enum hfi_packet_port_type {
@@ -88,18 +90,19 @@ enum hfi_packet_port_type {
 };
 
 enum hfi_buffer_type {
-	HFI_BUFFER_BITSTREAM  = 0x00000001,
-	HFI_BUFFER_RAW        = 0x00000002,
-	HFI_BUFFER_METADATA   = 0x00000003,
-	HFI_BUFFER_SUBCACHE   = 0x00000004,
-	HFI_BUFFER_DPB        = 0x00000006,
-	HFI_BUFFER_BIN        = 0x00000007,
-	HFI_BUFFER_LINE       = 0x00000008,
-	HFI_BUFFER_ARP        = 0x00000009,
-	HFI_BUFFER_COMV       = 0x0000000A,
-	HFI_BUFFER_NON_COMV   = 0x0000000B,
-	HFI_BUFFER_PERSIST    = 0x0000000C,
-	HFI_BUFFER_VPSS       = 0x0000000D,
+	HFI_BUFFER_BITSTREAM      = 0x00000001,
+	HFI_BUFFER_RAW            = 0x00000002,
+	HFI_BUFFER_METADATA       = 0x00000003,
+	HFI_BUFFER_SUBCACHE       = 0x00000004,
+	HFI_BUFFER_PARTIAL_DATA   = 0x00000005,
+	HFI_BUFFER_DPB            = 0x00000006,
+	HFI_BUFFER_BIN            = 0x00000007,
+	HFI_BUFFER_LINE           = 0x00000008,
+	HFI_BUFFER_ARP            = 0x00000009,
+	HFI_BUFFER_COMV           = 0x0000000A,
+	HFI_BUFFER_NON_COMV       = 0x0000000B,
+	HFI_BUFFER_PERSIST        = 0x0000000C,
+	HFI_BUFFER_VPSS           = 0x0000000D,
 };
 
 enum hfi_buffer_host_flags {
@@ -115,6 +118,7 @@ enum hfi_buffer_firmware_flags {
 	HFI_BUF_FW_FLAG_READONLY        = 0x00000010,
 	HFI_BUF_FW_FLAG_CODEC_CONFIG    = 0x00000100,
 	HFI_BUF_FW_FLAG_LAST            = 0x10000000,
+	HFI_BUF_FW_FLAG_PSC_LAST        = 0x20000000,
 };
 
 enum hfi_metapayload_header_flags {
@@ -146,6 +150,11 @@ enum hfi_property_mode_type {
 	HFI_MODE_METADATA             = 0x00000004,
 };
 
+enum hfi_reserve_type {
+	HFI_RESERVE_START = 0x1,
+	HFI_RESERVE_STOP  = 0x2,
+};
+
 #define HFI_CMD_BEGIN                                           0x01000000
 #define HFI_CMD_INIT                                            0x01000001
 #define HFI_CMD_POWER_COLLAPSE                                  0x01000002
@@ -164,16 +173,19 @@ enum hfi_property_mode_type {
 #define HFI_SSR_TYPE_SW_DIV_BY_ZERO     0x2
 #define HFI_SSR_TYPE_CPU_WDOG_IRQ       0x3
 #define HFI_SSR_TYPE_NOC_ERROR          0x4
-
 #define HFI_BITMASK_HW_CLIENT_ID                        0x000000f0
 #define HFI_BITMASK_SSR_TYPE                            0x0000000f
 #define HFI_CMD_SSR                                             0x0100000D
 
 #define HFI_STABILITY_TYPE_VCODEC_HUNG        0x1
 #define HFI_STABILITY_TYPE_ENC_BUFFER_FULL    0x2
-#define HFI_BITMASK_STABILITY_TYPE                              0x0000000f
+#define HFI_BITMASK_STABILITY_TYPE                      0x0000000f
 #define HFI_CMD_STABILITY                                       0x0100000E
 
+#define HFI_CMD_RESERVE                                         0x0100000F
+#define HFI_CMD_FLUSH                                           0x01000010
+#define HFI_CMD_PAUSE                                           0x01000011
+#define HFI_CMD_EARLY_NOTIFY_PARTIAL_FRAME                      0x01000012
 #define HFI_CMD_END                                             0x01FFFFFF
 
 #endif //__H_HFI_COMMAND_H__

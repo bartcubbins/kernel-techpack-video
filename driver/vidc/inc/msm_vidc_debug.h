@@ -39,6 +39,18 @@ extern int msm_vidc_llc_bw;
 extern bool msm_vidc_fw_dump;
 extern unsigned int msm_vidc_enable_bugon;
 
+/* do not modify the log message as it is used in test scripts */
+#define FMT_STRING_SET_CTRL \
+	"%s: state %s, name %s, id 0x%x value %d\n"
+#define FMT_STRING_STATE_CHANGE \
+	"%s: state changed to %s from %s\n"
+#define FMT_STRING_MSG_SFR \
+	"SFR Message from FW: %s\n"
+#define FMT_STRING_FAULT_HANDLER \
+	"%s: faulting address: %lx\n"
+#define FMT_STRING_SET_CAP \
+	"set cap: name: %24s, cap value: %#10x, hfi: %#10x\n"
+
 /* To enable messages OR these values and
  * echo the result to debugfs file.
  *
@@ -52,6 +64,7 @@ enum vidc_msg_prio {
 	VIDC_PERF       = 0x00000008,
 	VIDC_PKT        = 0x00000010,
 	VIDC_BUS        = 0x00000020,
+	VIDC_STAT       = 0x00000040,
 	VIDC_ENCODER    = 0x00000100,
 	VIDC_DECODER    = 0x00000200,
 	VIDC_PRINTK     = 0x00001000,
@@ -65,8 +78,14 @@ enum vidc_msg_prio {
 	FW_PRINTK       = 0x10000000,
 	FW_FTRACE       = 0x20000000,
 };
-#define FW_LOGSHIFT    16
-#define FW_LOGMASK     0x0FFF0000
+
+#define DRV_LOG        (VIDC_ERR | VIDC_PRINTK)
+#define DRV_LOGSHIFT   (0)
+#define DRV_LOGMASK    (0x0FFF)
+
+#define FW_LOG         (FW_ERROR | FW_FATAL | FW_PRINTK)
+#define FW_LOGSHIFT    (16)
+#define FW_LOGMASK     (0x0FFF0000)
 
 #define dprintk_inst(__level, __level_str, inst, __fmt, ...) \
 	do { \
@@ -85,9 +104,12 @@ enum vidc_msg_prio {
 #define i_vpr_p(inst, __fmt, ...) dprintk_inst(VIDC_PERF, "perf", inst, __fmt, ##__VA_ARGS__)
 #define i_vpr_t(inst, __fmt, ...) dprintk_inst(VIDC_PKT,  "pkt ", inst, __fmt, ##__VA_ARGS__)
 #define i_vpr_b(inst, __fmt, ...) dprintk_inst(VIDC_BUS,  "bus ", inst, __fmt, ##__VA_ARGS__)
+#define i_vpr_s(inst, __fmt, ...) dprintk_inst(VIDC_STAT, "stat", inst, __fmt, ##__VA_ARGS__)
 
 #define i_vpr_hp(inst, __fmt, ...) \
 	dprintk_inst(VIDC_HIGH | VIDC_PERF, "high", inst, __fmt, ##__VA_ARGS__)
+#define i_vpr_hs(inst, __fmt, ...) \
+	dprintk_inst(VIDC_HIGH | VIDC_STAT, "high", inst, __fmt, ##__VA_ARGS__)
 
 #define dprintk_core(__level, __level_str, __fmt, ...) \
 	do { \
@@ -106,6 +128,7 @@ enum vidc_msg_prio {
 #define d_vpr_p(__fmt, ...) dprintk_core(VIDC_PERF, "perf", __fmt, ##__VA_ARGS__)
 #define d_vpr_t(__fmt, ...) dprintk_core(VIDC_PKT,  "pkt ", __fmt, ##__VA_ARGS__)
 #define d_vpr_b(__fmt, ...) dprintk_core(VIDC_BUS,  "bus ", __fmt, ##__VA_ARGS__)
+#define d_vpr_s(__fmt, ...) dprintk_core(VIDC_STAT, "stat", __fmt, ##__VA_ARGS__)
 
 #define dprintk_ratelimit(__level, __level_str, __fmt, ...) \
 	do { \

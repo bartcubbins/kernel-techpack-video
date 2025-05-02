@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/iommu.h>
 #include <linux/dma-iommu.h>
 #include <linux/of.h>
 #include <linux/sort.h>
-#include <linux/of_address.h>
 
 #include "msm_vidc_debug.h"
 #include "msm_vidc_dt.h"
@@ -347,7 +345,7 @@ static int msm_vidc_load_bus_table(struct msm_vidc_core *core)
 	d_vpr_h("Found %d bus interconnects\n", num_buses);
 
 	rc = msm_vidc_vmem_alloc(2 * num_buses * sizeof(*bus_ranges),
-			(void **)&bus_ranges, " for bus ranges");
+					(void **)&bus_ranges, " for bus ranges");
 	if (rc)
 		return rc;
 
@@ -386,7 +384,7 @@ static int msm_vidc_load_bus_table(struct msm_vidc_core *core)
 	}
 
 exit:
-	msm_vidc_vmem_free((void **)&bus_ranges);
+	msm_vidc_vmem_free((void **) &bus_ranges);
 	return rc;
 }
 
@@ -843,8 +841,6 @@ static int msm_vidc_populate_context_bank(struct device *dev,
 	}
 
 	INIT_LIST_HEAD(&cb->list);
-	list_add_tail(&cb->list, &core->dt->context_banks);
-
 	rc = of_property_read_string(np, "label", &cb->name);
 	if (rc) {
 		d_vpr_h("Failed to read cb label from device tree\n");
@@ -864,12 +860,6 @@ static int msm_vidc_populate_context_bank(struct device *dev,
 	d_vpr_h("context bank %s: secure = %d\n",
 			cb->name, cb->is_secure);
 
-	if (!cb->is_secure && !core->is_non_coherent && !of_dma_is_coherent(np)) {
-		core->is_non_coherent = true;
-		d_vpr_h("%s: %s hardware based coherency %s\n", __func__,
-				cb->name, core->is_non_coherent ? "disabled" : "enabled");
-	}
-
 	d_vpr_h("context bank %s address start %x size %x\n",
 		cb->name, cb->addr_range.start,
 		cb->addr_range.size);
@@ -880,13 +870,16 @@ static int msm_vidc_populate_context_bank(struct device *dev,
 		goto err_setup_cb;
 	}
 
+	core_lock(core, __func__);
+	list_add_tail(&cb->list, &core->dt->context_banks);
+	core_unlock(core, __func__);
+
 	iommu_set_fault_handler(cb->domain,
 		msm_vidc_smmu_fault_handler, (void *)core);
 
 	return 0;
 
 err_setup_cb:
-	list_del(&cb->list);
 	return rc;
 }
 

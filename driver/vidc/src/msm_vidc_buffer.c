@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_media_info.h"
@@ -64,27 +63,28 @@ u32 msm_vidc_output_min_count(struct msm_vidc_inst *inst)
 	if (is_thumbnail_session(inst))
 		return 1;
 
-	if (is_encode_session(inst))
-		return MIN_ENC_OUTPUT_BUFFERS;
-
-	switch (inst->codec) {
-	case MSM_VIDC_H264:
-	case MSM_VIDC_HEVC:
-		output_min_count = 4;
-		break;
-	case MSM_VIDC_VP9:
-		output_min_count = 9;
-		break;
-	case MSM_VIDC_HEIC:
-		output_min_count = 3;
-		break;
-	default:
-		output_min_count = 4;
+	if (is_decode_session(inst)) {
+		switch (inst->codec) {
+		case MSM_VIDC_H264:
+		case MSM_VIDC_HEVC:
+			output_min_count = 4;
+			break;
+		case MSM_VIDC_VP9:
+			output_min_count = 9;
+			break;
+		case MSM_VIDC_AV1:
+			output_min_count = 11;
+			break;
+		case MSM_VIDC_HEIC:
+			output_min_count = 3;
+			break;
+		default:
+			output_min_count = 4;
+		}
+	} else {
+		output_min_count = MIN_ENC_OUTPUT_BUFFERS;
+		//todo: reduce heic count to 2, once HAL side cushion is added
 	}
-
-	if (inst->buffers.output.min_count)
-		output_min_count = max(inst->buffers.output.min_count,
-							output_min_count);
 
 	return output_min_count;
 }
@@ -148,8 +148,16 @@ u32 msm_vidc_output_extra_count(struct msm_vidc_inst *inst)
 
 	if (is_decode_session(inst)) {
 		/* add dcvs buffers, if platform supports dcvs */
-		if (core->capabilities[DCVS].value)
-			count = DCVS_DEC_EXTRA_OUTPUT_BUFFERS;
+		if (core->capabilities[DCVS].value) {
+			/*
+			 * No extra buffers for low latency sw fence enabled sessions
+			 * except slice decode to avoid new buffer allocations
+			 * in userspace buffer pool implementation.
+			 */
+			if (!is_lowlatency_session(inst) || !is_meta_rx_inp_enabled(inst,
+				META_OUTBUF_FENCE) || is_slice_decode_enabled(inst))
+				count = DCVS_DEC_EXTRA_OUTPUT_BUFFERS;
+		}
 		/*
 		 * if decode batching enabled, ensure minimum batch size
 		 * count of extra output buffers added on output port
@@ -180,13 +188,15 @@ u32 msm_vidc_internal_buffer_count(struct msm_vidc_inst *inst,
 	if (is_decode_session(inst)) {
 		if (buffer_type == MSM_VIDC_BUF_BIN ||
 			buffer_type == MSM_VIDC_BUF_LINE ||
-			buffer_type == MSM_VIDC_BUF_PERSIST) {
+			buffer_type == MSM_VIDC_BUF_PERSIST ||
+			buffer_type == MSM_VIDC_BUF_PARTIAL_DATA) {
 			count = 1;
 		} else if (buffer_type == MSM_VIDC_BUF_COMV ||
 			buffer_type == MSM_VIDC_BUF_NON_COMV) {
 			if (inst->codec == MSM_VIDC_H264 ||
 				inst->codec == MSM_VIDC_HEVC ||
-				inst->codec == MSM_VIDC_HEIC)
+				inst->codec == MSM_VIDC_HEIC ||
+				inst->codec == MSM_VIDC_AV1)
 				count = 1;
 			else
 				count = 0;
@@ -255,6 +265,7 @@ u32 msm_vidc_decoder_input_size(struct msm_vidc_inst *inst)
 
 	 /* multiply by 10/8 (1.25) to get size for 10 bit case */
 	if (f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_VP9 ||
+		f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_AV1 ||
 		f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_HEVC ||
 		f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_HEIC)
 		frame_size = frame_size + (frame_size >> 2);
@@ -278,24 +289,75 @@ u32 msm_vidc_decoder_output_size(struct msm_vidc_inst *inst)
 
 u32 msm_vidc_decoder_input_meta_size(struct msm_vidc_inst *inst)
 {
-	return ALIGN(16 * 1024, SZ_4K);
+	return MSM_VIDC_METADATA_SIZE;
 }
 
 u32 msm_vidc_decoder_output_meta_size(struct msm_vidc_inst *inst)
 {
-	return ALIGN(16 * 1024, SZ_4K);
+	u32 size = MSM_VIDC_METADATA_SIZE;
+
+	if (inst->capabilities->cap[META_DOLBY_RPU].value)
+		size += MSM_VIDC_METADATA_DOLBY_RPU_SIZE;
+
+	return ALIGN(size, SZ_4K);
 }
 
 u32 msm_vidc_encoder_input_size(struct msm_vidc_inst *inst)
 {
 	u32 size;
 	struct v4l2_format *f;
+	u32 width, height;
 
 	f = &inst->fmts[INPUT_PORT];
+	width = f->fmt.pix_mp.width;
+	height = f->fmt.pix_mp.height;
+	if (is_image_session(inst)) {
+		width = ALIGN(width, HEIC_GRID_DIMENSION);
+		height = ALIGN(height, HEIC_GRID_DIMENSION);
+	}
 	size = VIDEO_RAW_BUFFER_SIZE(f->fmt.pix_mp.pixelformat,
-			f->fmt.pix_mp.width,
-			f->fmt.pix_mp.height, true);
+			width, height, true);
 	return size;
+}
+
+u32 msm_vidc_enc_delivery_mode_based_output_buf_size(struct msm_vidc_inst *inst,
+	u32 frame_size)
+{
+	u32 slice_size;
+	u32 width, height;
+	u32 width_in_lcus, height_in_lcus, lcu_size;
+	u32 total_mb_count;
+	struct v4l2_format *f;
+
+	if (!inst || !inst->capabilities) {
+		d_vpr_e("%s: invalid params\n", __func__);
+		return frame_size;
+	}
+
+	f = &inst->fmts[OUTPUT_PORT];
+
+	if (f->fmt.pix_mp.pixelformat != V4L2_PIX_FMT_HEVC &&
+		f->fmt.pix_mp.pixelformat != V4L2_PIX_FMT_H264)
+		return frame_size;
+
+	if (inst->capabilities->cap[SLICE_MODE].value != V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB)
+		return frame_size;
+
+	if (!is_enc_slice_delivery_mode(inst))
+		return frame_size;
+
+	lcu_size = (f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_HEVC) ? 32 : 16;
+	width = f->fmt.pix_mp.width;
+	height = f->fmt.pix_mp.height;
+	width_in_lcus = (width + lcu_size - 1) / lcu_size;
+	height_in_lcus = (height + lcu_size - 1) / lcu_size;
+	total_mb_count = width_in_lcus * height_in_lcus;
+
+	slice_size = ((frame_size * inst->capabilities->cap[SLICE_MAX_MB].value) \
+					+ total_mb_count - 1) / total_mb_count;
+
+	slice_size = ALIGN(slice_size, SZ_4K);
+	return slice_size;
 }
 
 u32 msm_vidc_encoder_output_size(struct msm_vidc_inst *inst)
@@ -315,7 +377,6 @@ u32 msm_vidc_encoder_output_size(struct msm_vidc_inst *inst)
 	 * Encoder output size calculation: 32 Align width/height
 	 * For heic session : YUVsize * 2
 	 * For resolution <= 480x360p : YUVsize * 2
-	 * For resolution > 360p & <= FHD : YUVsize : if CAC disabled
 	 * For resolution > 360p & <= 4K : YUVsize / 2
 	 * For resolution > 4k : YUVsize / 4
 	 * Initially frame_size = YUVsize * 2;
@@ -333,9 +394,6 @@ u32 msm_vidc_encoder_output_size(struct msm_vidc_inst *inst)
 
 	if (mbs_per_frame <= NUM_MBS_360P)
 		(void)frame_size; /* Default frame_size = YUVsize * 2 */
-	else if (inst->capabilities->cap[CONTENT_ADAPTIVE_CODING].value ==
-				V4L2_MPEG_MSM_VIDC_DISABLE && mbs_per_frame <= NUM_MBS_FHD)
-		frame_size = frame_size >> 1;
 	else if (mbs_per_frame <= NUM_MBS_4k)
 		frame_size = frame_size >> 2;
 	else
@@ -354,7 +412,10 @@ skip_calc:
 		f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_HEIC)
 		frame_size = frame_size + (frame_size >> 2);
 
-	return ALIGN(frame_size, SZ_4K);
+	frame_size = ALIGN(frame_size, SZ_4K);
+	frame_size = msm_vidc_enc_delivery_mode_based_output_buf_size(inst, frame_size);
+
+	return frame_size;
 }
 
 static inline u32 ROI_METADATA_SIZE(
@@ -378,13 +439,17 @@ u32 msm_vidc_encoder_input_meta_size(struct msm_vidc_inst *inst)
 	u32 size = 0;
 	u32 lcu_size = 0;
 	struct v4l2_format *f;
+	u32 width, height;
 
 	if (!inst || !inst->capabilities) {
 		d_vpr_e("%s: invalid params\n", __func__);
 		return 0;
 	}
 
-	size = ALIGN(16 * 1024, SZ_4K);
+	size = MSM_VIDC_METADATA_SIZE;
+
+	if (inst->capabilities->cap[INPUT_META_VIA_REQUEST].value)
+		return ENCODE_INPUT_METADATA_SIZE;
 
 	if (inst->capabilities->cap[META_ROI_INFO].value) {
 		lcu_size = 16;
@@ -394,8 +459,18 @@ u32 msm_vidc_encoder_input_meta_size(struct msm_vidc_inst *inst)
 			lcu_size = 32;
 
 		f = &inst->fmts[INPUT_PORT];
-		size += ROI_METADATA_SIZE(f->fmt.pix_mp.width,
-			f->fmt.pix_mp.height, lcu_size);
+		width = f->fmt.pix_mp.width;
+		height = f->fmt.pix_mp.height;
+		if (is_image_session(inst)) {
+			width = ALIGN(width, HEIC_GRID_DIMENSION);
+			height = ALIGN(height, HEIC_GRID_DIMENSION);
+		}
+		size += ROI_METADATA_SIZE(width, height, lcu_size);
+		size = ALIGN(size, SZ_4K);
+	}
+
+	if (inst->capabilities->cap[META_DOLBY_RPU].value) {
+		size += MSM_VIDC_METADATA_DOLBY_RPU_SIZE;
 		size = ALIGN(size, SZ_4K);
 	}
 	return size;
@@ -403,5 +478,5 @@ u32 msm_vidc_encoder_input_meta_size(struct msm_vidc_inst *inst)
 
 u32 msm_vidc_encoder_output_meta_size(struct msm_vidc_inst *inst)
 {
-	return ALIGN(16 * 1024, SZ_4K);
+	return MSM_VIDC_METADATA_SIZE;
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #define CREATE_TRACE_POINTS
 #include "msm_vidc_debug.h"
@@ -21,7 +20,7 @@ extern struct msm_vidc_core *g_core;
 #define MSM_VIDC_MIN_STATS_DELAY_MS     200
 #define MSM_VIDC_MAX_STATS_DELAY_MS     10000
 
-unsigned int msm_vidc_debug = VIDC_ERR | VIDC_PRINTK | FW_ERROR | FW_FATAL | FW_PRINTK;
+unsigned int msm_vidc_debug = (DRV_LOG | FW_LOG);
 
 static int debug_level_set(const char *val,
 	const struct kernel_param *kp)
@@ -47,11 +46,12 @@ static int debug_level_set(const char *val,
 
 	msm_vidc_debug = dvalue;
 
-	/* check only driver logmask */
-	if ((dvalue & 0xFF) > (VIDC_ERR | VIDC_HIGH)) {
-		core->capabilities[HW_RESPONSE_TIMEOUT].value = 2 * HW_RESPONSE_TIMEOUT_VALUE;
-		core->capabilities[SW_PC_DELAY].value         = 2 * SW_PC_DELAY_VALUE;
-		core->capabilities[FW_UNLOAD_DELAY].value     = 2 * FW_UNLOAD_DELAY_VALUE;
+	/* check if driver or FW logmask is more than default level */
+	if (((dvalue & DRV_LOGMASK) & ~(DRV_LOG)) ||
+		((dvalue & FW_LOGMASK) & ~(FW_LOG))) {
+		core->capabilities[HW_RESPONSE_TIMEOUT].value = 4 * HW_RESPONSE_TIMEOUT_VALUE;
+		core->capabilities[SW_PC_DELAY].value         = 4 * SW_PC_DELAY_VALUE;
+		core->capabilities[FW_UNLOAD_DELAY].value     = 4 * FW_UNLOAD_DELAY_VALUE;
 	} else {
 		/* reset timeout values, if user reduces the logging */
 		core->capabilities[HW_RESPONSE_TIMEOUT].value = HW_RESPONSE_TIMEOUT_VALUE;
@@ -78,7 +78,47 @@ static const struct kernel_param_ops msm_vidc_debug_fops = {
 	.get = debug_level_get,
 };
 
+static int fw_dump_set(const char *val,
+	const struct kernel_param *kp)
+{
+	struct msm_vidc_core *core = NULL;
+	unsigned int dvalue;
+	int ret;
+
+	if (!kp || !kp->arg || !val) {
+		d_vpr_e("%s: Invalid params\n", __func__);
+		return -EINVAL;
+	}
+	core = *(struct msm_vidc_core **) kp->arg;
+
+	if (!core || !core->capabilities) {
+		d_vpr_e("%s: Invalid core/capabilities\n", __func__);
+		return -EINVAL;
+	}
+
+	ret = kstrtouint(val, 0, &dvalue);
+	if (ret)
+		return ret;
+
+	msm_vidc_fw_dump = dvalue;
+
+	d_vpr_h("fw dump %s\n", msm_vidc_fw_dump ? "Enabled" : "Disabled");
+
+	return 0;
+}
+
+static int fw_dump_get(char *buffer, const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%#x", msm_vidc_fw_dump);
+}
+
+static const struct kernel_param_ops msm_vidc_fw_dump_fops = {
+	.set = fw_dump_set,
+	.get = fw_dump_get,
+};
+
 module_param_cb(msm_vidc_debug, &msm_vidc_debug_fops, &g_core, 0644);
+module_param_cb(msm_vidc_fw_dump, &msm_vidc_fw_dump_fops, &g_core, 0644);
 
 bool msm_vidc_lossless_encode = !true;
 EXPORT_SYMBOL(msm_vidc_lossless_encode);
@@ -359,8 +399,6 @@ struct dentry* msm_vidc_debugfs_init_drv(void)
 			&msm_vidc_syscache_disable);
 	debugfs_create_bool("lossless_encoding", 0644, dir,
 			&msm_vidc_lossless_encode);
-	debugfs_create_bool("msm_vidc_fw_dump", 0644, dir,
-			&msm_vidc_fw_dump);
 	debugfs_create_u32("enable_bugon", 0644, dir,
 			&msm_vidc_enable_bugon);
 
@@ -437,7 +475,6 @@ static ssize_t inst_info_read(struct file *file, char __user *buf,
 	int i, j;
 	ssize_t len = 0;
 	struct v4l2_format *f;
-	int rc = 0;
 
 	if (!idata || !idata->core || !idata->inst ||
 		!idata->inst->capabilities) {
@@ -454,8 +491,7 @@ static ssize_t inst_info_read(struct file *file, char __user *buf,
 		return 0;
 	}
 
-	rc = msm_vidc_vmem_alloc(MAX_DBG_BUF_SIZE, (void **)&dbuf, __func__);
-	if (rc) {
+	if (msm_vidc_vmem_alloc(MAX_DBG_BUF_SIZE, (void **)&dbuf, __func__)) {
 		len = -ENOMEM;
 		goto failed_alloc;
 	}
@@ -488,7 +524,7 @@ static ssize_t inst_info_read(struct file *file, char __user *buf,
 			"type: %s\n", i == INPUT_PORT ?
 			"Output" : "Capture");
 		cur += write_str(cur, end - cur, "count: %u\n",
-				inst->vb2q[i].num_buffers);
+				inst->bufq[i].vb2q->num_buffers);
 
 		for (j = 0; j < f->fmt.pix_mp.num_planes; j++)
 			cur += write_str(cur, end - cur,
@@ -536,7 +572,6 @@ struct dentry *msm_vidc_debugfs_init_inst(void *instance, struct dentry *parent)
 	char debugfs_name[MAX_DEBUGFS_NAME];
 	struct core_inst_pair *idata = NULL;
 	struct msm_vidc_inst *inst = (struct msm_vidc_inst *) instance;
-	int rc = 0;
 
 	if (!inst) {
 		d_vpr_e("%s: invalid params\n", __func__);
@@ -544,8 +579,7 @@ struct dentry *msm_vidc_debugfs_init_inst(void *instance, struct dentry *parent)
 	}
 	snprintf(debugfs_name, MAX_DEBUGFS_NAME, "inst_%d", inst->session_id);
 
-	rc = msm_vidc_vmem_alloc(sizeof(struct core_inst_pair), (void **)&idata, __func__);
-	if (rc)
+	if (msm_vidc_vmem_alloc(sizeof(struct core_inst_pair), (void **)&idata, __func__))
 		goto exit;
 
 	idata->core = inst->core;

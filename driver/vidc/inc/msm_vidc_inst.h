@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2020-2021,, The Linux Foundation. All rights reserved.
  */
+/* Copyright (c) 2022. Qualcomm Innovation Center, Inc. All rights reserved. */
 
 #ifndef _MSM_VIDC_INST_H_
 #define _MSM_VIDC_INST_H_
@@ -16,10 +16,6 @@ struct msm_vidc_inst;
 #define call_session_op(c, op, ...)			\
 	(((c) && (c)->session_ops && (c)->session_ops->op) ? \
 	((c)->session_ops->op(__VA_ARGS__)) : 0)
-
-#define call_platform_op(c, op, ...)			\
-	(((c) && (c)->platform_ops && (c)->platform_ops->op) ? \
-	((c)->platform_ops->op(__VA_ARGS__)) : 0)
 
 struct msm_vidc_session_ops {
 	u64 (*calc_freq)(struct msm_vidc_inst *inst, u32 data_size);
@@ -42,6 +38,7 @@ struct msm_vidc_allocations_info {
 	struct msm_vidc_allocations     dpb;
 	struct msm_vidc_allocations     persist;
 	struct msm_vidc_allocations     vpss;
+	struct msm_vidc_allocations     partial_data;
 };
 
 struct msm_vidc_mappings_info {
@@ -57,6 +54,7 @@ struct msm_vidc_mappings_info {
 	struct msm_vidc_mappings        dpb;
 	struct msm_vidc_mappings        persist;
 	struct msm_vidc_mappings        vpss;
+	struct msm_vidc_mappings        partial_data;
 };
 
 struct msm_vidc_buffers_info {
@@ -74,27 +72,48 @@ struct msm_vidc_buffers_info {
 	struct msm_vidc_buffers        dpb;
 	struct msm_vidc_buffers        persist;
 	struct msm_vidc_buffers        vpss;
+	struct msm_vidc_buffers        partial_data;
 };
 
-enum msm_vidc_inst_state {
+enum msm_vidc_state {
 	MSM_VIDC_OPEN                      = 1,
-	MSM_VIDC_START_INPUT               = 2,
-	MSM_VIDC_START_OUTPUT              = 3,
-	MSM_VIDC_START                     = 4,
-	MSM_VIDC_DRC                       = 5,
-	MSM_VIDC_DRC_LAST_FLAG             = 6,
-	MSM_VIDC_DRAIN                     = 7,
-	MSM_VIDC_DRAIN_LAST_FLAG           = 8,
-	MSM_VIDC_DRC_DRAIN                 = 9,
-	MSM_VIDC_DRC_DRAIN_LAST_FLAG       = 10,
-	MSM_VIDC_DRAIN_START_INPUT         = 11,
-	MSM_VIDC_ERROR                     = 12,
+	MSM_VIDC_INPUT_STREAMING           = 2,
+	MSM_VIDC_OUTPUT_STREAMING          = 3,
+	MSM_VIDC_STREAMING                 = 4,
+	MSM_VIDC_CLOSE                     = 5,
+	MSM_VIDC_ERROR                     = 6,
+};
+
+#define MSM_VIDC_SUB_STATE_NONE          0
+#define MSM_VIDC_MAX_SUB_STATES          7
+/*
+ * max value of inst->sub_state if all
+ * the 6 valid bits are set i.e 111111==>63
+ */
+#define MSM_VIDC_MAX_SUB_STATE_VALUE     ((1 << MSM_VIDC_MAX_SUB_STATES) - 1)
+
+enum msm_vidc_sub_state {
+	MSM_VIDC_DRAIN                     = BIT(0),
+	MSM_VIDC_DRC                       = BIT(1),
+	MSM_VIDC_DRAIN_LAST_BUFFER         = BIT(2),
+	MSM_VIDC_DRC_LAST_BUFFER           = BIT(3),
+	MSM_VIDC_INPUT_PAUSE               = BIT(4),
+	MSM_VIDC_OUTPUT_PAUSE              = BIT(5),
+	MSM_VIDC_FIRST_IPSC                = BIT(6),
+};
+
+struct buf_queue {
+	struct vb2_queue *vb2q;
 };
 
 struct msm_vidc_inst {
 	struct list_head                   list;
 	struct mutex                       lock;
-	enum msm_vidc_inst_state           state;
+	struct mutex                       request_lock;
+	struct mutex                       client_lock;
+	enum msm_vidc_state                state;
+	enum msm_vidc_sub_state            sub_state;
+	char                               sub_state_name[MAX_NAME_LENGTH];
 	enum msm_vidc_domain_type          domain;
 	enum msm_vidc_codec_type           codec;
 	void                              *core;
@@ -106,14 +125,14 @@ struct msm_vidc_inst {
 	struct v4l2_format                 fmts[MAX_PORT];
 	struct v4l2_ctrl_handler           ctrl_handler;
 	struct v4l2_fh                     event_handler;
+	struct v4l2_m2m_dev               *m2m_dev;
+	struct v4l2_m2m_ctx               *m2m_ctx;
 	struct v4l2_ctrl                 **ctrls;
 	u32                                num_ctrls;
-	struct msm_vidc_inst_cap_entry     children;
-	struct msm_vidc_inst_cap_entry     firmware;
 	enum hfi_rate_control              hfi_rc_type;
 	enum hfi_layer_encoding_type       hfi_layer_type;
 	bool                               request;
-	struct vb2_queue                   vb2q[MAX_PORT];
+	struct buf_queue                   bufq[MAX_PORT];
 	struct msm_vidc_rectangle          crop;
 	struct msm_vidc_rectangle          compose;
 	struct msm_vidc_power              power;
@@ -133,19 +152,22 @@ struct msm_vidc_inst {
 	struct msm_vidc_decode_batch       decode_batch;
 	struct msm_vidc_decode_vpp_delay   decode_vpp_delay;
 	struct msm_vidc_session_idle       session_idle;
-	struct delayed_work                response_work;
 	struct delayed_work                stats_work;
 	struct work_struct                 stability_work;
 	struct msm_vidc_stability          stability;
-	struct workqueue_struct           *response_workq;
-	struct list_head                   response_works; /* list of struct response_work */
+	struct workqueue_struct           *workq;
 	struct list_head                   enc_input_crs;
 	struct list_head                   dmabuf_tracker; /* list of struct msm_memory_dmabuf */
+	struct list_head                   input_timer_list; /* list of struct msm_vidc_input_timer */
+	struct list_head                   caps_list;
+	struct list_head                   children_list; /* struct msm_vidc_inst_cap_entry */
+	struct list_head                   firmware_list; /* struct msm_vidc_inst_cap_entry */
+	struct list_head                   pending_pkts; /* list of struct hfi_pending_packet */
 	struct list_head                   fence_list; /* list of struct msm_vidc_fence */
+	struct list_head                   buffer_stats_list; /* struct msm_vidc_buffer_stats */
 	bool                               once_per_session_set;
 	bool                               ipsc_properties_set;
 	bool                               opsc_properties_set;
-	bool                               psc_or_last_flag_discarded;
 	struct dentry                     *debugfs_root;
 	struct msm_vidc_debug              debug;
 	struct debug_buf_count             debug_count;
@@ -153,15 +175,21 @@ struct msm_vidc_inst {
 	struct msm_vidc_inst_capability   *capabilities;
 	struct completion                  completions[MAX_SIGNAL];
 	struct msm_vidc_fence_context      fence_context;
-	enum priority_level                priority_level;
-	u32                                firmware_priority;
+	struct msm_vidc_slice_decode       slice_decode;
 	bool                               active;
 	u64                                last_qbuf_time_ns;
+	u64                                initial_time_us;
 	bool                               vb2q_init;
 	u32                                max_input_data_size;
 	u32                                dpb_list_payload[MAX_DPB_LIST_ARRAY_SIZE];
 	u32                                max_map_output_count;
 	u32                                auto_framerate;
+	u32                                max_rate;
 	bool                               has_bframe;
+	bool                               ir_enabled;
+	u32                                adjust_priority;
+	bool                               iframe;
+	u32                                fences_per_output_counter;
+	u32                                prev_fence_id;
 };
 #endif // _MSM_VIDC_INST_H_

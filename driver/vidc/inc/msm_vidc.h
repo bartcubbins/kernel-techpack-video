@@ -25,11 +25,11 @@ int msm_vidc_s_selection(void* instance, struct v4l2_selection* s);
 int msm_vidc_g_selection(void* instance, struct v4l2_selection* s);
 int msm_vidc_s_param(void *instance, struct v4l2_streamparm *sp);
 int msm_vidc_g_param(void *instance, struct v4l2_streamparm *sp);
-int msm_vidc_s_ctrl(void *instance, struct v4l2_control *a);
-int msm_vidc_s_ext_ctrl(void *instance, struct v4l2_ext_controls *a);
-int msm_vidc_g_ext_ctrl(void *instance, struct v4l2_ext_controls *a);
-int msm_vidc_g_ctrl(void *instance, struct v4l2_control *a);
 int msm_vidc_reqbufs(void *instance, struct v4l2_requestbuffers *b);
+int msm_vidc_querybuf(void *instance, struct v4l2_buffer *b);
+int msm_vidc_create_bufs(void *instance, struct v4l2_create_buffers *b);
+int msm_vidc_prepare_buf(void *instance, struct media_device *mdev,
+	struct v4l2_buffer *b);
 int msm_vidc_release_buffer(void *instance, int buffer_type,
 		unsigned int buffer_index);
 int msm_vidc_qbuf(void *instance, struct media_device *mdev,
@@ -39,6 +39,7 @@ int msm_vidc_streamon(void *instance, enum v4l2_buf_type i);
 int msm_vidc_query_ctrl(void *instance, struct v4l2_queryctrl *ctrl);
 int msm_vidc_query_menu(void *instance, struct v4l2_querymenu *qmenu);
 int msm_vidc_streamoff(void *instance, enum v4l2_buf_type i);
+int msm_vidc_try_cmd(void *instance, union msm_v4l2_cmd *cmd);
 int msm_vidc_cmd(void *instance, union msm_v4l2_cmd *cmd);
 int msm_vidc_poll(void *instance, struct file *filp,
 		struct poll_table_struct *pt);

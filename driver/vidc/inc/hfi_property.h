@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __H_HFI_PROPERTY_H__
@@ -53,6 +53,7 @@ enum hfi_codec_type {
     HFI_CODEC_ENCODE_HEVC  = 4,
     HFI_CODEC_DECODE_VP9   = 5,
     HFI_CODEC_DECODE_MPEG2 = 6,
+    HFI_CODEC_DECODE_AV1   = 7,
 };
 #define HFI_PROP_CODEC                                          0x03000100
 
@@ -111,6 +112,12 @@ enum hfi_vp9_profile_type {
 enum hfi_mpeg2_profile_type {
     HFI_MP2_PROFILE_SIMPLE = 0,
     HFI_MP2_PROFILE_MAIN   = 1,
+};
+
+enum hfi_av1_profile_type {
+    HFI_AV1_PROFILE_MAIN = 0,
+    HFI_AV1_PROFILE_HIGH = 1,
+    HFI_AV1_PROFILE_PROF = 2,
 };
 
 #define HFI_PROP_PROFILE                                        0x03000107
@@ -176,6 +183,34 @@ enum hfi_mpeg2_level_type {
     HFI_MP2_LEVEL_HIGH      = 3,
 };
 
+enum hfi_av1_level_type {
+    HFI_AV1_LEVEL_2_0 = 0,
+    HFI_AV1_LEVEL_2_1 = 1,
+    HFI_AV1_LEVEL_2_2 = 2,
+    HFI_AV1_LEVEL_2_3 = 3,
+    HFI_AV1_LEVEL_3_0 = 4,
+    HFI_AV1_LEVEL_3_1 = 5,
+    HFI_AV1_LEVEL_3_2 = 6,
+    HFI_AV1_LEVEL_3_3 = 7,
+    HFI_AV1_LEVEL_4_0 = 8,
+    HFI_AV1_LEVEL_4_1 = 9,
+    HFI_AV1_LEVEL_4_2 = 10,
+    HFI_AV1_LEVEL_4_3 = 11,
+    HFI_AV1_LEVEL_5_0 = 12,
+    HFI_AV1_LEVEL_5_1 = 13,
+    HFI_AV1_LEVEL_5_2 = 14,
+    HFI_AV1_LEVEL_5_3 = 15,
+    HFI_AV1_LEVEL_6_0 = 16,
+    HFI_AV1_LEVEL_6_1 = 17,
+    HFI_AV1_LEVEL_6_2 = 18,
+    HFI_AV1_LEVEL_6_3 = 19,
+    HFI_AV1_LEVEL_7_0 = 20,
+    HFI_AV1_LEVEL_7_1 = 21,
+    HFI_AV1_LEVEL_7_2 = 22,
+    HFI_AV1_LEVEL_7_3 = 23,
+    HFI_AV1_LEVEL_MAX = 31,
+};
+
 enum hfi_codec_level_type {
     HFI_LEVEL_NONE = 0xFFFFFFFF,
 };
@@ -186,6 +221,12 @@ enum hfi_hevc_tier_type {
     HFI_H265_TIER_MAIN = 0,
     HFI_H265_TIER_HIGH = 1,
 };
+
+enum hfi_av1_tier_type {
+    HFI_AV1_TIER_MAIN = 0,
+    HFI_AV1_TIER_HIGH = 1,
+};
+
 #define HFI_PROP_TIER                                           0x03000109
 
 #define HFI_PROP_STAGE                                          0x0300010a
@@ -429,6 +470,9 @@ enum hfi_picture_type {
     HFI_PICTURE_I   = 0x00000008,
     HFI_PICTURE_CRA = 0x00000010,
     HFI_PICTURE_BLA = 0x00000020,
+    HFI_PICTURE_NOSHOW = 0x00000040,
+    HFI_PICTURE_START  = 0x00000080,
+    HFI_PICTURE_END    = 0x00000100,
 };
 #define HFI_PROP_PICTURE_TYPE                                   0x03000162
 
@@ -492,11 +536,49 @@ enum hfi_nal_length_field_type {
 
 #define HFI_PROP_MAINTAIN_MIN_QUALITY                           0x0300017D
 
+#define HFI_PROP_IR_CYCLIC_PERIOD                               0x0300017E
+
+#define HFI_PROP_ENABLE_SLICE_DELIVERY                          0x0300017F
+
+#define HFI_PROP_AV1_FILM_GRAIN_PRESENT                         0x03000180
+
+#define HFI_PROP_AV1_SUPER_BLOCK_ENABLED                        0x03000181
+
+#define HFI_PROP_AV1_OP_POINT                                   0x03000182
+
 #define HFI_PROP_SUBFRAME_INPUT                                 0x03000183
+
+#define HFI_PROP_OPB_ENABLE                                     0x03000184
+
+#define HFI_PROP_AV1_DRAP_CONFIG                                0x03000189
+
+enum hfi_saliency_type {
+     HFI_SALIENCY_NONE,
+     HFI_SALIENCY_TYPE0,
+};
+#define HFI_PROP_ROI_AS_SALIENCY_INFO                           0x0300018A
+
+#define HFI_PROP_FENCE                                          0x0300018B
+
+#define HFI_PROP_REQUEST_PREPROCESS                             0x0300018E
+
+#define HFI_PROP_UBWC_STRIDE_SCANLINE                           0x03000190
+
+#define HFI_PROP_TRANSCODING_STAT_INFO                          0x03000191
+
+#define HFI_PROP_DOLBY_RPU_METADATA                             0x03000192
+
+#define HFI_PROP_COMV_BUFFER_COUNT                              0x03000193
 
 #define HFI_PROP_DISABLE_VUI_TIMING_INFO                        0x03000194
 
-#define HFI_PROP_FENCE                                          0x0300018B
+#define HFI_PROP_SLICE_DECODE                                   0x03000196
+
+#define HFI_PROP_EARLY_NOTIFY_ENABLE                            0x03000198
+
+#define HFI_PROP_EARLY_NOTIFY_LINE_COUNT                        0x03000199
+
+#define HFI_PROP_EARLY_NOTIFY_FENCE_COUNT                       0x0300019A
 
 #define HFI_PROP_END                                            0x03FFFFFF
 
@@ -513,6 +595,8 @@ enum hfi_nal_length_field_type {
 #define HFI_ERROR_INSUFFICIENT_RESOURCES                        0x04000005
 
 #define HFI_ERROR_BUFFER_NOT_SET                                0x04000006
+
+#define HFI_ERROR_DRAP_CONFIG_EXCEED                            0x04000007
 
 #define HFI_ERROR_STREAM_UNSUPPORTED                            0x04000008
 
@@ -539,6 +623,10 @@ enum hfi_nal_length_field_type {
 #define HFI_INFO_BUFFER_OVERFLOW                                0x06000004
 
 #define HFI_INFO_VCODEC_RESET                                   0x06000005
+
+#define HFI_INFO_HFI_FLAG_DRAIN_LAST                            0x06000006
+
+#define HFI_INFO_HFI_FLAG_PSC_LAST                              0x06000007
 
 #define HFI_INFORMATION_END                                     0x06FFFFFF
 

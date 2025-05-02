@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2020-2021,, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
-
 #include "msm_vidc_iris2.h"
 #include "msm_vidc_buffer_iris2.h"
 #include "msm_vidc_power_iris2.h"
@@ -16,6 +15,7 @@
 #include "msm_vidc_internal.h"
 #include "msm_vidc_buffer.h"
 #include "msm_vidc_debug.h"
+#include "msm_vidc_control.h"
 #include "msm_vidc_platform.h"
 
 #define VIDEO_ARCH_LX 1
@@ -122,8 +122,6 @@
 #define WRAPPER_TZ_BASE_OFFS	0x000C0000
 #define WRAPPER_TZ_CPU_CLOCK_CONFIG	(WRAPPER_TZ_BASE_OFFS)
 #define WRAPPER_TZ_CPU_STATUS	(WRAPPER_TZ_BASE_OFFS + 0x10)
-#define WRAPPER_TZ_CTL_AXI_CLOCK_CONFIG	(WRAPPER_TZ_BASE_OFFS + 0x14)
-#define WRAPPER_TZ_QNS4PDXFIFO_RESET	(WRAPPER_TZ_BASE_OFFS + 0x18)
 
 #define CTRL_INIT_IRIS2		CPU_CS_SCIACMD_IRIS2
 
@@ -430,6 +428,17 @@ static int __setup_ucregion_memory_map_iris2(struct msm_vidc_core *vidc_core)
 	if (rc)
 		return rc;
 
+	/* update queues vaddr for debug purpose */
+	value = (u32)((u64)core->iface_q_table.align_virtual_addr);
+	rc = __write_register(core, CPU_CS_VCICMDARG0_IRIS2, value);
+	if (rc)
+		return rc;
+
+	value = (u32)((u64)core->iface_q_table.align_virtual_addr >> 32);
+	rc = __write_register(core, CPU_CS_VCICMDARG1_IRIS2, value);
+	if (rc)
+		return rc;
+
 	if (core->sfr.align_device_addr) {
 		value = (u32)core->sfr.align_device_addr + VIDEO_ARCH_LX;
 		rc = __write_register(core, SFR_ADDR_IRIS2, value);
@@ -494,7 +503,7 @@ static int __power_off_iris2_hardware(struct msm_vidc_core *core)
 				__func__, i, value);
 	}
 
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE)
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1)
 		goto skip_aon_mvp_noc;
 
 	/* Apply partial reset on MSF interface and wait for ACK */
@@ -544,7 +553,7 @@ disable_power:
 		d_vpr_e("%s: disable regulator vcodec failed\n", __func__);
 		rc = 0;
 	}
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE) {
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
 		rc = __disable_unprepare_clock_iris2(core, "video_mvs0_axi_clk");
 		if (rc) {
 			d_vpr_e("%s: disable unprepare video_mvs0_axi_clk failed\n", __func__);
@@ -567,7 +576,7 @@ static int __power_off_iris2_controller(struct msm_vidc_core *core)
 	if (rc)
 		return rc;
 
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE)
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1)
 		goto skip_aon_mvp_noc;
 
 	/* set MNoC to low power, set PD_NOC_QREQ (bit 0) */
@@ -581,9 +590,6 @@ static int __power_off_iris2_controller(struct msm_vidc_core *core)
 	if (rc)
 		d_vpr_h("%s: AON_WRAPPER_MVP_NOC_LPI_CONTROL failed\n", __func__);
 
-	if (core->platform->data.vpu_ver != VPU_VERSION_IRIS2)
-		goto skip_cpu_noc;
-
 	/* Set Iris CPU NoC to Low power */
 	rc = __write_register_masked(core, WRAPPER_IRIS_CPU_NOC_LPI_CONTROL,
 			0x1, BIT(0));
@@ -596,7 +602,6 @@ static int __power_off_iris2_controller(struct msm_vidc_core *core)
 		d_vpr_h("%s: WRAPPER_IRIS_CPU_NOC_LPI_CONTROL failed\n", __func__);
 
 	/* Set Debug bridge Low power */
-skip_cpu_noc:
 skip_aon_mvp_noc:
 	rc = __write_register(core, WRAPPER_DEBUG_BRIDGE_LPI_CONTROL_IRIS2, 0x7);
 	if (rc)
@@ -617,27 +622,8 @@ skip_aon_mvp_noc:
 	if (rc)
 		d_vpr_h("%s: debug bridge release failed\n", __func__);
 
-#if defined(CONFIG_MSM_VIDC_NEO)
-	/* Reset MVP QNS4PDXFIFO */
-	rc = __write_register(core, WRAPPER_TZ_CTL_AXI_CLOCK_CONFIG, 0x3);
-	if (rc)
-		return rc;
-
-	rc = __write_register(core, WRAPPER_TZ_QNS4PDXFIFO_RESET, 0x1);
-	if (rc)
-		return rc;
-
-	rc = __write_register(core, WRAPPER_TZ_QNS4PDXFIFO_RESET, 0x0);
-	if (rc)
-		return rc;
-
-	rc = __write_register(core, WRAPPER_TZ_CTL_AXI_CLOCK_CONFIG, 0x0);
-	if (rc)
-		return rc;
-#endif
-
 	/* Disable VIDEO_CC_VENUS_AHB_CLK clock */
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE) {
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
 		rc = __disable_unprepare_clock_iris2(core, "iface_clk");
 		if (rc) {
 			d_vpr_e("%s: disable unprepare iface_clk failed\n", __func__);
@@ -652,10 +638,10 @@ skip_aon_mvp_noc:
 		rc = 0;
 	}
 
-	/* Disable VIDEO_CTL_AXI0_CLK clock */
-	rc = __disable_unprepare_clock_iris2(core, "video_ctl_axi0_clk");
+	/* Disable VIDEO_CTL_AXI_CLK clock */
+	rc = __disable_unprepare_clock_iris2(core, "video_ctl_axi_clk");
 	if (rc) {
-		d_vpr_e("%s: disable unprepare video_ctl_axi0_clk failed\n", __func__);
+		d_vpr_e("%s: disable unprepare video_ctl_axi_clk failed\n", __func__);
 		rc = 0;
 	}
 
@@ -725,7 +711,7 @@ static int __power_on_iris2_controller(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_reset_ahb2axi;
 
-	rc = __prepare_enable_clock_iris2(core, "video_ctl_axi0_clk");
+	rc = __prepare_enable_clock_iris2(core, "video_ctl_axi_clk");
 	if (rc)
 		goto fail_clk_axi;
 
@@ -733,7 +719,7 @@ static int __power_on_iris2_controller(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_clk_controller;
 
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE) {
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
 		rc = __prepare_enable_clock_iris2(core, "iface_clk");
 		if (rc)
 			goto fail_iface_clk;
@@ -744,7 +730,7 @@ static int __power_on_iris2_controller(struct msm_vidc_core *core)
 fail_iface_clk:
 	__disable_unprepare_clock_iris2(core, "core_clk");
 fail_clk_controller:
-	__disable_unprepare_clock_iris2(core, "video_ctl_axi0_clk");
+	__disable_unprepare_clock_iris2(core, "video_ctl_axi_clk");
 fail_clk_axi:
 fail_reset_ahb2axi:
 	__disable_regulator_iris2(core, "iris-ctl");
@@ -760,7 +746,7 @@ static int __power_on_iris2_hardware(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_regulator;
 
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE) {
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
 		rc = __prepare_enable_clock_iris2(core, "video_mvs0_axi_clk");
 		if (rc)
 			goto fail_clk_axi;
@@ -773,7 +759,7 @@ static int __power_on_iris2_hardware(struct msm_vidc_core *core)
 	return 0;
 
 fail_clk_controller:
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1PIPE)
+	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1)
 		__disable_unprepare_clock_iris2(core, "video_mvs0_axi_clk");
 fail_clk_axi:
 	__disable_regulator_iris2(core, "vcodec");
@@ -1112,6 +1098,10 @@ int msm_vidc_decide_work_mode_iris2(struct msm_vidc_inst* inst)
 			(inst->capabilities->cap[LOWLATENCY_MODE].value)) {
 			work_mode = MSM_VIDC_STAGE_1;
 		}
+		if (inst->capabilities->cap[SLICE_MODE].value ==
+			V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES) {
+			work_mode = MSM_VIDC_STAGE_1;
+		}
 		if (inst->capabilities->cap[LOSSLESS].value)
 			work_mode = MSM_VIDC_STAGE_2;
 
@@ -1172,6 +1162,56 @@ exit:
 	return 0;
 }
 
+int msm_vidc_adjust_blur_type_iris2(void *instance, struct v4l2_ctrl *ctrl)
+{
+	struct msm_vidc_inst_capability *capability;
+	s32 adjusted_value;
+	struct msm_vidc_inst *inst = (struct msm_vidc_inst *) instance;
+	s32 rc_type = -1, cac = -1;
+	s32 pix_fmts = -1, min_quality = -1;
+
+	if (!inst || !inst->capabilities) {
+		d_vpr_e("%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	capability = inst->capabilities;
+
+	adjusted_value = ctrl ? ctrl->val :
+		capability->cap[BLUR_TYPES].value;
+
+	if (adjusted_value == VIDC_BLUR_NONE)
+		return 0;
+
+	if (msm_vidc_get_parent_value(inst, BLUR_TYPES, BITRATE_MODE,
+		&rc_type, __func__) ||
+		msm_vidc_get_parent_value(inst, BLUR_TYPES,
+		CONTENT_ADAPTIVE_CODING, &cac, __func__) ||
+		msm_vidc_get_parent_value(inst, BLUR_TYPES, PIX_FMTS,
+		&pix_fmts, __func__) ||
+		msm_vidc_get_parent_value(inst, BLUR_TYPES, MIN_QUALITY,
+		&min_quality, __func__))
+		return -EINVAL;
+
+	if (adjusted_value == VIDC_BLUR_EXTERNAL) {
+		if (is_scaling_enabled(inst) || min_quality) {
+			adjusted_value = VIDC_BLUR_NONE;
+		}
+	} else if (adjusted_value == VIDC_BLUR_ADAPTIVE) {
+		if (is_scaling_enabled(inst) || min_quality ||
+			(rc_type != HFI_RC_VBR_CFR) ||
+			!cac ||
+			is_10bit_colorformat(pix_fmts)) {
+			adjusted_value = VIDC_BLUR_NONE;
+		}
+	}
+
+	msm_vidc_update_cap_value(inst, BLUR_TYPES,
+		adjusted_value, __func__);
+
+	return 0;
+}
+
 int msm_vidc_decide_quality_mode_iris2(struct msm_vidc_inst* inst)
 {
 	struct msm_vidc_inst_capability* capability = NULL;
@@ -1201,10 +1241,10 @@ int msm_vidc_decide_quality_mode_iris2(struct msm_vidc_inst* inst)
 	max_hq_mbpf = core->capabilities[MAX_MBPF_HQ].value;;
 	max_hq_mbps = core->capabilities[MAX_MBPS_HQ].value;;
 
-	/* NRT session to have max quality unless client configures least complexity */
+	/* NRT session to have max quality unless client configures lesser complexity */
 	if (!is_realtime_session(inst) && mbpf <= max_hq_mbpf) {
 		mode = MSM_VIDC_MAX_QUALITY_MODE;
-		if (!capability->cap[COMPLEXITY].value)
+		if (capability->cap[COMPLEXITY].value < DEFAULT_COMPLEXITY)
 			mode = MSM_VIDC_POWER_SAVE_MODE;
 		goto exit;
 	}

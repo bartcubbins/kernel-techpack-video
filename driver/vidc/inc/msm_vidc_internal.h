@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2020-2021,, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _MSM_VIDC_INTERNAL_H_
@@ -18,6 +17,7 @@
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ctrls.h>
+#include <media/v4l2-mem2mem.h>
 #include <media/videobuf2-core.h>
 #include <media/videobuf2-v4l2.h>
 
@@ -31,7 +31,9 @@
 #define DEFAULT_WIDTH     320
 #define DEFAULT_FPS       30
 #define MAXIMUM_VP9_FPS   60
-#define MAX_SUPPORTED_INSTANCES  16
+#define NRT_PRIORITY_OFFSET        2
+#define RT_DEC_DOWN_PRORITY_OFFSET 1
+#define MAX_SUPPORTED_INSTANCES  32
 #define DEFAULT_BSE_VPP_DELAY    2
 #define MAX_CAP_PARENTS          20
 #define MAX_CAP_CHILDREN         20
@@ -44,7 +46,8 @@
 #define MAX_VP9D_INST_COUNT     6
 /* TODO: move below macros to waipio.c */
 #define MAX_ENH_LAYER_HB        3
-#define MAX_HEVC_ENH_LAYER_SLIDING_WINDOW     5
+#define MAX_HEVC_VBR_ENH_LAYER_SLIDING_WINDOW         5
+#define MAX_HEVC_NON_VBR_ENH_LAYER_SLIDING_WINDOW     3
 #define MAX_AVC_ENH_LAYER_SLIDING_WINDOW      3
 #define MAX_AVC_ENH_LAYER_HYBRID_HP           5
 #define INVALID_DEFAULT_MARK_OR_USE_LTR      -1
@@ -57,15 +60,21 @@
 #define MIN_HEVC_SLICE_WIDTH                384
 #define MIN_AVC_SLICE_WIDTH                 192
 #define MIN_SLICE_HEIGHT                    128
+#define MAX_BITRATE_BOOST                    25
 #define MAX_SUPPORTED_MIN_QUALITY            70
 #define MIN_CHROMA_QP_OFFSET                -12
 #define MAX_CHROMA_QP_OFFSET                  0
+#define MIN_QP_10BIT                        -11
+#define MIN_QP_8BIT                           1
 #define INVALID_FD                           -1
 #define INVALID_CLIENT_ID                    -1
 
 #define DCVS_WINDOW 16
 #define ENC_FPS_WINDOW 3
 #define DEC_FPS_WINDOW 10
+#define INPUT_TIMER_LIST_SIZE 30
+
+#define DEFAULT_COMPLEXITY 50
 
 #define INPUT_MPLANE V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
 #define OUTPUT_MPLANE V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
@@ -77,7 +86,7 @@
 #define VIDC_IFACEQ_MIN_PKT_SIZE                8
 #define VIDC_IFACEQ_VAR_SMALL_PKT_SIZE          100
 #define VIDC_IFACEQ_VAR_LARGE_PKT_SIZE          512
-#define VIDC_IFACEQ_VAR_HUGE_PKT_SIZE          (1024*12)
+#define VIDC_IFACEQ_VAR_HUGE_PKT_SIZE          (1024*4)
 
 #define NUM_MBS_PER_SEC(__height, __width, __fps) \
 	(NUM_MBS_PER_FRAME(__height, __width) * __fps)
@@ -98,7 +107,7 @@
 #define BUFFER_ALIGNMENT_SIZE(x) x
 #define NUM_MBS_360P (((480 + 15) >> 4) * ((360 + 15) >> 4))
 #define NUM_MBS_720P (((1280 + 15) >> 4) * ((720 + 15) >> 4))
-#define NUM_MBS_FHD (((1920 + 15) >> 4) * ((1080 + 15) >> 4))
+#define NUM_MBS_1080P (((1920 + 15) >> 4) * ((1080 + 15) >> 4))
 #define NUM_MBS_4k (((4096 + 15) >> 4) * ((2304 + 15) >> 4))
 #define MB_SIZE_IN_PIXEL (16 * 16)
 
@@ -125,6 +134,7 @@
 #define FW_UNLOAD_DELAY_VALUE         (SW_PC_DELAY_VALUE + 1500)
 
 #define MAX_MAP_OUTPUT_COUNT 64
+#define MAX_FENCE_COUNT 10
 #define MAX_DPB_COUNT 32
  /*
   * max dpb count in firmware = 16
@@ -145,11 +155,7 @@ enum msm_vidc_codec_type {
 	MSM_VIDC_HEVC              = BIT(1),
 	MSM_VIDC_VP9               = BIT(2),
 	MSM_VIDC_HEIC              = BIT(3),
-};
-
-enum priority_level {
-	MSM_VIDC_PRIORITY_HIGH     = 0,
-	MSM_VIDC_PRIORITY_LOW      = 1,
+	MSM_VIDC_AV1               = BIT(4),
 };
 
 enum msm_vidc_colorformat_type {
@@ -178,6 +184,7 @@ enum msm_vidc_buffer_type {
 	MSM_VIDC_BUF_DPB                   = 12,
 	MSM_VIDC_BUF_PERSIST               = 13,
 	MSM_VIDC_BUF_VPSS                  = 14,
+	MSM_VIDC_BUF_PARTIAL_DATA          = 15,
 };
 
 /* always match with v4l2 flags V4L2_BUF_FLAG_* */
@@ -291,9 +298,9 @@ enum msm_vidc_matrix_coefficients {
 	MSM_VIDC_MATRIX_COEFF_BT2100                         = 14,
 };
 
-enum msm_vidc_ctrl_list_type {
-	CHILD_LIST          = BIT(0),
-	FW_LIST             = BIT(1),
+enum msm_vidc_preprocess_type {
+	MSM_VIDC_PREPROCESS_NONE = BIT(0),
+	MSM_VIDC_PREPROCESS_TYPE0 = BIT(1),
 };
 
 enum msm_vidc_core_capability_type {
@@ -310,6 +317,7 @@ enum msm_vidc_core_capability_type {
 	MAX_RT_MBPF,
 	MAX_MBPF,
 	MAX_MBPS,
+	MAX_ENC_MBPS,
 	MAX_IMAGE_MBPF,
 	MAX_MBPF_HQ,
 	MAX_MBPS_HQ,
@@ -341,8 +349,51 @@ enum msm_vidc_core_capability_type {
 	CORE_CAP_MAX,
 };
 
+/**
+ * msm_vidc_prepare_dependency_list() api will prepare caps_list by looping over
+ * enums(msm_vidc_inst_capability_type) from 0 to INST_CAP_MAX and arranges the
+ * node in such a way that parents willbe at the front and dependent children
+ * in the back.
+ *
+ * caps_list preparation may become CPU intensive task, so to save CPU cycles,
+ * organize enum in proper order(root caps at the beginning and dependent caps
+ * at back), so that during caps_list preparation num CPU cycles spent will reduce.
+ *
+ * Note: It will work, if enum kept at different places, but not efficient.
+ */
 enum msm_vidc_inst_capability_type {
 	INST_CAP_NONE = 0,
+	/* place all metadata after this line
+	 * (Between INST_CAP_NONE and META_CAP_MAX)
+	 */
+	META_SEQ_HDR_NAL,
+	META_BITSTREAM_RESOLUTION,
+	META_CROP_OFFSETS,
+	META_DPB_MISR,
+	META_OPB_MISR,
+	META_INTERLACE,
+	META_OUTBUF_FENCE,
+	META_LTR_MARK_USE,
+	META_TIMESTAMP,
+	META_CONCEALED_MB_CNT,
+	META_HIST_INFO,
+	META_PICTURE_TYPE,
+	META_SEI_MASTERING_DISP,
+	META_SEI_CLL,
+	META_HDR10PLUS,
+	META_BUF_TAG,
+	META_DPB_TAG_LIST,
+	META_SUBFRAME_OUTPUT,
+	META_ENC_QP_METADATA,
+	META_DEC_QP_METADATA,
+	META_MAX_NUM_REORDER_FRAMES,
+	META_EVA_STATS,
+	META_ROI_INFO,
+	META_SALIENCY_INFO,
+	META_TRANSCODING_STAT_INFO,
+	META_DOLBY_RPU,
+	META_CAP_MAX,
+	/* end of metadata caps */
 	FRAME_WIDTH,
 	LOSSLESS_FRAME_WIDTH,
 	SECURE_FRAME_WIDTH,
@@ -353,14 +404,14 @@ enum msm_vidc_inst_capability_type {
 	MIN_BUFFERS_INPUT,
 	MIN_BUFFERS_OUTPUT,
 	MBPF,
-	LOSSLESS_MBPF,
 	BATCH_MBPF,
 	BATCH_FPS,
+	LOSSLESS_MBPF,
 	SECURE_MBPF,
-	MBPS,
-	POWER_SAVE_MBPS,
 	FRAME_RATE,
 	OPERATING_RATE,
+	INPUT_RATE,
+	TIMESTAMP_RATE,
 	SCALE_FACTOR,
 	MB_CYCLES_VSP,
 	MB_CYCLES_VPP,
@@ -369,8 +420,6 @@ enum msm_vidc_inst_capability_type {
 	MB_CYCLES_FW_VPP,
 	CLIENT_ID,
 	SECURE_MODE,
-	META_OUTBUF_FENCE,
-	OUTPUT_ORDER,
 	FENCE_ID,
 	FENCE_FD,
 	TS_REORDER,
@@ -378,82 +427,54 @@ enum msm_vidc_inst_capability_type {
 	VFLIP,
 	ROTATION,
 	SUPER_FRAME,
-	SLICE_INTERFACE,
 	HEADER_MODE,
 	PREPEND_SPSPPS_TO_IDR,
-	VUI_TIMING_INFO,
-	META_SEQ_HDR_NAL,
 	WITHOUT_STARTCODE,
 	NAL_LENGTH_FIELD,
 	REQUEST_I_FRAME,
-	BIT_RATE,
 	BITRATE_MODE,
 	LOSSLESS,
 	FRAME_SKIP_MODE,
 	FRAME_RC_ENABLE,
-	CONSTANT_QUALITY,
-	GOP_SIZE,
 	GOP_CLOSURE,
-	B_FRAME,
-	BLUR_TYPES,
-	BLUR_RESOLUTION,
 	CSC,
 	CSC_CUSTOM_MATRIX,
-	GRID,
-	LOWLATENCY_MODE,
-	LTR_COUNT,
 	USE_LTR,
 	MARK_LTR,
 	BASELAYER_PRIORITY,
-	IR_RANDOM,
+	IR_TYPE,
 	AU_DELIMITER,
-	TIME_DELTA_BASED_RC,
-	CONTENT_ADAPTIVE_CODING,
-	BITRATE_BOOST,
-	MIN_QUALITY,
-	VBV_DELAY,
-	PEAK_BITRATE,
-	MIN_FRAME_QP,
+	GRID,
 	I_FRAME_MIN_QP,
 	P_FRAME_MIN_QP,
 	B_FRAME_MIN_QP,
-	MAX_FRAME_QP,
 	I_FRAME_MAX_QP,
 	P_FRAME_MAX_QP,
 	B_FRAME_MAX_QP,
-	I_FRAME_QP,
-	P_FRAME_QP,
-	B_FRAME_QP,
 	LAYER_TYPE,
 	LAYER_ENABLE,
-	ENH_LAYER_COUNT,
 	L0_BR,
 	L1_BR,
 	L2_BR,
 	L3_BR,
 	L4_BR,
 	L5_BR,
-	ENTROPY_MODE,
-	PROFILE,
 	LEVEL,
 	HEVC_TIER,
-	LF_MODE,
-	LF_ALPHA,
-	LF_BETA,
-	SLICE_MODE,
-	SLICE_MAX_BYTES,
-	SLICE_MAX_MB,
-	MB_RC,
-	TRANSFORM_8X8,
-	CHROMA_QP_INDEX_OFFSET,
+	AV1_TIER,
 	DISPLAY_DELAY_ENABLE,
 	DISPLAY_DELAY,
 	CONCEAL_COLOR_8BIT,
 	CONCEAL_COLOR_10BIT,
-	STAGE,
+	LF_MODE,
+	LF_ALPHA,
+	LF_BETA,
+	SLICE_MAX_BYTES,
+	SLICE_MAX_MB,
+	MB_RC,
+	CHROMA_QP_INDEX_OFFSET,
 	PIPE,
 	POC,
-	QUALITY_MODE,
 	CODED_FRAMES,
 	BIT_DEPTH,
 	CODEC_CONFIG,
@@ -462,46 +483,82 @@ enum msm_vidc_inst_capability_type {
 	DEFAULT_HEADER,
 	RAP_FRAME,
 	SEQ_CHANGE_AT_SYNC_FRAME,
+	QUALITY_MODE,
 	PRIORITY,
-	ENC_IP_CR,
+	FIRMWARE_PRIORITY_OFFSET,
+	CRITICAL_PRIORITY,
+	RESERVE_DURATION,
 	DPB_LIST,
-	ALL_INTRA,
-	META_LTR_MARK_USE,
-	META_DPB_MISR,
-	META_OPB_MISR,
-	META_INTERLACE,
-	META_TIMESTAMP,
-	META_CONCEALED_MB_CNT,
-	META_HIST_INFO,
-	META_PICTURE_TYPE,
-	META_SEI_MASTERING_DISP,
-	META_SEI_CLL,
-	META_HDR10PLUS,
-	META_EVA_STATS,
-	META_BUF_TAG,
-	META_DPB_TAG_LIST,
-	META_OUTPUT_BUF_TAG,
-	META_SUBFRAME_OUTPUT,
-	META_ENC_QP_METADATA,
-	META_ROI_INFO,
-	META_DEC_QP_METADATA,
+	FILM_GRAIN,
+	SUPER_BLOCK,
+	DRAP,
+	INPUT_METADATA_FD,
+	INPUT_META_VIA_REQUEST,
+	ENC_IP_CR,
 	COMPLEXITY,
-	META_MAX_NUM_REORDER_FRAMES,
+	CABAC_MAX_BITRATE,
+	CAVLC_MAX_BITRATE,
+	ALLINTRA_MAX_BITRATE,
+	LOWLATENCY_MAX_BITRATE,
+	LAST_FLAG_EVENT_ENABLE,
+	NUM_COMV,
+	/* place all root(no parent) enums before this line */
+
+	PROFILE,
+	ENH_LAYER_COUNT,
+	BIT_RATE,
+	LOWLATENCY_MODE,
+	GOP_SIZE,
+	B_FRAME,
+	ALL_INTRA,
+	MIN_QUALITY,
+	CONTENT_ADAPTIVE_CODING,
+	BLUR_TYPES,
+	REQUEST_PREPROCESS,
+	SLICE_MODE,
+	EARLY_NOTIFY_ENABLE,
+	EARLY_NOTIFY_LINE_COUNT,
+	/* place all intermittent(having both parent and child) enums before this line */
+
+	MIN_FRAME_QP,
+	MAX_FRAME_QP,
+	I_FRAME_QP,
+	P_FRAME_QP,
+	B_FRAME_QP,
+	TIME_DELTA_BASED_RC,
+	CONSTANT_QUALITY,
+	VBV_DELAY,
+	PEAK_BITRATE,
+	ENTROPY_MODE,
+	TRANSFORM_8X8,
+	STAGE,
+	LTR_COUNT,
+	IR_PERIOD,
+	BITRATE_BOOST,
+	BLUR_RESOLUTION,
+	OUTPUT_ORDER,
+	INPUT_BUF_HOST_MAX_COUNT,
+	OUTPUT_BUF_HOST_MAX_COUNT,
+	DELIVERY_MODE,
+	VUI_TIMING_INFO,
+	SLICE_DECODE,
+	EARLY_NOTIFY_FENCE_COUNT,
+	/* place all leaf(no child) enums before this line */
 	INST_CAP_MAX,
 };
 
 enum msm_vidc_inst_capability_flags {
 	CAP_FLAG_NONE                    = 0,
-	CAP_FLAG_ROOT                    = BIT(0),
-	CAP_FLAG_DYNAMIC_ALLOWED         = BIT(1),
-	CAP_FLAG_MENU                    = BIT(2),
-	CAP_FLAG_INPUT_PORT              = BIT(3),
-	CAP_FLAG_OUTPUT_PORT             = BIT(4),
-	CAP_FLAG_CLIENT_SET              = BIT(5),
+	CAP_FLAG_DYNAMIC_ALLOWED         = BIT(0),
+	CAP_FLAG_MENU                    = BIT(1),
+	CAP_FLAG_INPUT_PORT              = BIT(2),
+	CAP_FLAG_OUTPUT_PORT             = BIT(3),
+	CAP_FLAG_CLIENT_SET              = BIT(4),
+	CAP_FLAG_BITMASK                 = BIT(5),
 };
 
 struct msm_vidc_inst_cap {
-	enum msm_vidc_inst_capability_type cap;
+	enum msm_vidc_inst_capability_type cap_id;
 	s32 min;
 	s32 max;
 	u32 step_or_mask;
@@ -715,6 +772,8 @@ struct msm_vidc_subscription_params {
 	u32                    profile;
 	u32                    level;
 	u32                    tier;
+	u32                    av1_film_grain_present;
+	u32                    av1_super_block_enabled;
 };
 
 struct msm_vidc_hfi_frame_info {
@@ -725,7 +784,8 @@ struct msm_vidc_hfi_frame_info {
 	u32                    cf;
 	u32                    data_corrupt;
 	u32                    overflow;
-	u32                    fence_id;
+	u32                    fence_id[MAX_FENCE_COUNT];
+	u32                    fence_count;
 };
 
 struct msm_vidc_decode_vpp_delay {
@@ -765,6 +825,7 @@ struct vidc_bus_vote_data {
 	u64 calc_bw_ddr;
 	u64 calc_bw_llcc;
 	u32 num_vpp_pipes;
+	bool vpss_preprocessing_enabled;
 };
 
 struct msm_vidc_power {
@@ -807,7 +868,7 @@ struct msm_vidc_alloc {
 	u8                          secure:1;
 	u8                          map_kernel:1;
 	struct dma_buf             *dmabuf;
-#if (KERNEL_VERSION(5, 15, 0) <= LINUX_VERSION_CODE)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0))
 	struct dma_buf_map          dmabuf_map;
 #endif
 	void                       *kvaddr;
@@ -846,7 +907,10 @@ struct msm_vidc_buffer {
 	u32                                flags;
 	u64                                timestamp;
 	enum msm_vidc_buffer_attributes    attr;
-	u64                                fence_id;
+	u32                                start_time_ms;
+	u32                                end_time_ms;
+	u64                                fence_id[MAX_FENCE_COUNT];
+	u32                                fence_count;
 };
 
 struct msm_vidc_buffers {
@@ -856,6 +920,24 @@ struct msm_vidc_buffers {
 	u32                    actual_count;
 	u32                    size;
 	bool                   reuse;
+};
+
+struct msm_vidc_buffer_stats {
+	struct list_head                   list;
+	u32                                frame_num;
+	u64                                timestamp;
+	u32                                etb_time_ms;
+	u32                                ebd_time_ms;
+	u32                                ftb_time_ms;
+	u32                                fbd_time_ms;
+	u32                                data_size;
+	u32                                flags;
+};
+
+enum msm_vidc_buffer_stats_flag {
+	MSM_VIDC_STATS_FLAG_CORRUPT     = BIT(0),
+	MSM_VIDC_STATS_FLAG_OVERFLOW    = BIT(1),
+	MSM_VIDC_STATS_FLAG_NO_OUTPUT   = BIT(2),
 };
 
 struct msm_vidc_sort {
@@ -874,25 +956,24 @@ struct msm_vidc_timestamps {
 	u64                    rank;
 };
 
+struct msm_vidc_input_timer {
+	struct list_head       list;
+	u64                    time_us;
+};
+
+struct msm_vidc_slice_decode {
+	u64                    prev_ts;
+	u32                    slice_count;
+	u32                    frame_size;
+	u32                    frame_data_size;
+};
+
 enum msm_vidc_allow {
 	MSM_VIDC_DISALLOW = 0,
 	MSM_VIDC_ALLOW,
 	MSM_VIDC_DEFER,
 	MSM_VIDC_DISCARD,
 	MSM_VIDC_IGNORE,
-};
-
-enum response_work_type {
-	RESP_WORK_INPUT_PSC = 1,
-	RESP_WORK_OUTPUT_PSC,
-	RESP_WORK_LAST_FLAG,
-};
-
-struct response_work {
-	struct list_head        list;
-	enum response_work_type type;
-	void                   *data;
-	u32                     data_size;
 };
 
 struct msm_vidc_ssr {

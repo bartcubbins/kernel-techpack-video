@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "hfi_packet.h"
@@ -77,6 +76,7 @@ u32 get_hfi_port_from_buffer_type(struct msm_vidc_inst *inst,
 		case MSM_VIDC_BUF_COMV:
 		case MSM_VIDC_BUF_NON_COMV:
 		case MSM_VIDC_BUF_LINE:
+		case MSM_VIDC_BUF_PARTIAL_DATA:
 			hfi_port = HFI_PORT_BITSTREAM;
 			break;
 		case MSM_VIDC_BUF_OUTPUT:
@@ -157,6 +157,8 @@ u32 hfi_buf_type_from_driver(enum msm_vidc_domain_type domain,
 		return HFI_BUFFER_PERSIST;
 	case MSM_VIDC_BUF_VPSS:
 		return HFI_BUFFER_VPSS;
+	case MSM_VIDC_BUF_PARTIAL_DATA:
+		return HFI_BUFFER_PARTIAL_DATA;
 	default:
 		d_vpr_e("invalid buffer type %d\n",
 			buffer_type);
@@ -205,6 +207,8 @@ u32 hfi_buf_type_to_driver(enum msm_vidc_domain_type domain,
 		return MSM_VIDC_BUF_PERSIST;
 	case HFI_BUFFER_VPSS:
 		return MSM_VIDC_BUF_VPSS;
+	case HFI_BUFFER_PARTIAL_DATA:
+		return MSM_VIDC_BUF_PARTIAL_DATA;
 	default:
 		d_vpr_e("invalid buffer type %d\n",
 			buffer_type);
@@ -233,6 +237,8 @@ u32 get_hfi_codec(struct msm_vidc_inst *inst)
 			return HFI_CODEC_DECODE_HEVC;
 	case MSM_VIDC_VP9:
 		return HFI_CODEC_DECODE_VP9;
+	case MSM_VIDC_AV1:
+		return HFI_CODEC_DECODE_AV1;
 	default:
 		i_vpr_e(inst, "invalid codec %d, domain %d\n",
 			inst->codec, inst->domain);
@@ -387,6 +393,7 @@ int hfi_packet_sys_init(struct msm_vidc_core *core,
 	/* HFI_CMD_SYSTEM_INIT */
 	payload = HFI_VIDEO_ARCH_LX;
 	d_vpr_h("%s: arch %d\n", __func__, payload);
+	core->sys_init_id = core->packet_id++;
 	rc = hfi_create_packet(pkt, pkt_size,
 				   HFI_CMD_INIT,
 				   (HFI_HOST_FLAGS_RESPONSE_REQUIRED |
@@ -394,14 +401,11 @@ int hfi_packet_sys_init(struct msm_vidc_core *core,
 				   HFI_HOST_FLAGS_NON_DISCARDABLE),
 				   HFI_PAYLOAD_U32,
 				   HFI_PORT_NONE,
-				   core->packet_id++,
+				   core->sys_init_id,
 				   &payload,
 				   sizeof(u32));
 	if (rc)
 		goto err_sys_init;
-
-	if (!core->platform->data.ubwc_config)
-		goto exit;
 
 	/* HFI_PROP_UBWC_MAX_CHANNELS */
 	payload = core->platform->data.ubwc_config->max_channels;
@@ -501,7 +505,6 @@ int hfi_packet_sys_init(struct msm_vidc_core *core,
 	if (rc)
 		goto err_sys_init;
 
-exit:
 	d_vpr_h("System init packet created\n");
 	return rc;
 

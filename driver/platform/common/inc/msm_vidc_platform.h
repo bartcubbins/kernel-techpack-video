@@ -1,18 +1,17 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2020-2021,, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _MSM_VIDC_PLATFORM_H_
 #define _MSM_VIDC_PLATFORM_H_
 
 #include <linux/platform_device.h>
-
-#include "msm_vidc_internal.h"
 #include <media/v4l2-ctrls.h>
 
-struct msm_vidc_core;
+#include "msm_vidc_internal.h"
+#include "msm_vidc_core.h"
 
 #define DDR_TYPE_LPDDR4 0x6
 #define DDR_TYPE_LPDDR4X 0x7
@@ -49,7 +48,7 @@ struct msm_platform_core_capability {
 };
 
 struct msm_platform_inst_capability {
-	enum msm_vidc_inst_capability_type cap;
+	enum msm_vidc_inst_capability_type cap_id;
 	enum msm_vidc_domain_type domain;
 	enum msm_vidc_codec_type codec;
 	s32 min;
@@ -59,6 +58,12 @@ struct msm_platform_inst_capability {
 	u32 v4l2_id;
 	u32 hfi_id;
 	enum msm_vidc_inst_capability_flags flags;
+};
+
+struct msm_platform_inst_cap_dependency {
+	enum msm_vidc_inst_capability_type cap_id;
+	enum msm_vidc_domain_type domain;
+	enum msm_vidc_codec_type codec;
 	enum msm_vidc_inst_capability_type parents[MAX_CAP_PARENTS];
 	enum msm_vidc_inst_capability_type children[MAX_CAP_CHILDREN];
 	int (*adjust)(void *inst,
@@ -93,20 +98,18 @@ struct msm_vidc_ubwc_config_data {
 
 enum vpu_version {
 	VPU_VERSION_IRIS2 = 1,
-	VPU_VERSION_IRIS2_2PIPE,
-	VPU_VERSION_IRIS2_1PIPE,
-	VENUS_VERSION_AR50LT_V1,
-	VENUS_VERSION_AR50LT_V2,
+	VPU_VERSION_IRIS2_1,
 };
 
 struct msm_vidc_platform_data {
 	struct msm_platform_core_capability *core_data;
 	u32 core_data_size;
-	struct msm_platform_inst_capability *instance_data;
-	u32 instance_data_size;
+	struct msm_platform_inst_capability *inst_cap_data;
+	u32 inst_cap_data_size;
+	struct msm_platform_inst_cap_dependency *inst_cap_dependency_data;
+	u32 inst_cap_dependency_data_size;
 	struct msm_vidc_csc_coeff csc_data;
 	struct msm_vidc_ubwc_config_data *ubwc_config;
-	u32 *bus_bw_nrt;
 	struct msm_vidc_efuse_data *efuse_data;
 	unsigned int efuse_data_size;
 	unsigned int sku_version;
